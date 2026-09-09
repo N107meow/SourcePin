@@ -1,0 +1,16 @@
+{
+  "manifest_version":3,
+  "name":"SourcePin",
+  "version":"0.1.0",
+  "description":"选择网页元素，复制定位提示词与组件复现上下文。",
+  "minimum_chrome_version":"120",
+  "permissions":["activeTab","scripting","storage"],
+  "optional_permissions":["downloads"],
+  "background":{"service_worker":"background.js"},
+  "action":{"default_title":"SourcePin · 选择元素"},
+  "commands":{
+    "_execute_action":{"suggested_key":{"default":"Ctrl+Shift+Y","mac":"Command+Shift+Y"}},
+    "download-markdown":{"suggested_key":{"default":"Ctrl+Shift+M","mac":"Command+Shift+M"},"description":"下载 SourcePin Markdown"}
+  },
+  "content_security_policy":{"extension_pages":"script-src 'self'; object-src 'self'"}
+}

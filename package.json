@@ -1,0 +1,24 @@
+{
+  "name": "sourcepin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pick a web element. Give your agent the context.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/serve.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "node tests/e2e.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.1.36",
+    "esbuild": "0.27.3",
+    "playwright": "1.62.1",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

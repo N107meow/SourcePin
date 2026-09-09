@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SourcePin · 交互验收台</title><link rel="stylesheet" href="/demo/style.css"></head>
+<body>
+<header class="topbar"><a class="brand" href="/">SourcePin<span class="brand-dot"></span></a><span class="crumb">/ &nbsp; PLAYGROUND</span><nav><a href="#how">使用说明</a><a href="/dist/sourcepin-0.1.0-chrome.zip" download>下载扩展 ↗</a><span class="version">v0.1.0</span></nav></header>
+<main>
+  <section class="intro"><div><div class="eyebrow"><span></span> 给每个组件，一份清楚的上下文</div><h1>从这里，<br><em>开始选中。</em></h1><p>指向页面上的任何组件，点击选中，按 <kbd>⌘</kbd> <kbd>C</kbd>。<br>结构、样式与定位线索，一起交给你的 AI。</p><div class="intro-actions"><button id="launch" class="primary">唤起 SourcePin <span>↗</span></button><a href="/dist/sourcepin-0.1.0-chrome.zip" download class="secondary">下载 Chrome 扩展</a></div><p class="micro">此页使用共享内核演示。截图与同步设置，请安装扩展体验。</p></div><div class="intro-note"><span class="note-index">01 / 03</span><p>先选中，<br>再复制。</p><div class="key-row"><span>点击元素</span><span>→</span><kbd>⌘ / Ctrl + C</kbd></div><span class="note-foot">你的网页，就是上下文。</span></div></section>
+
+  <div class="section-heading"><h2>随手选一个，试试看</h2><span>交互组件 / 真实采集</span></div>
+  <section class="samples">
+    <article class="workspace-card" data-testid="workspace-card" data-id="workspace-2026" aria-label="工作空间卡片">
+      <div class="card-top"><span class="pill">WORKSPACE</span><span class="dots">•••</span></div>
+      <div class="avatar-stack"><i>M</i><i>J</i><i>Y</i><span>+4</span></div>
+      <h3>小团队，大想法。</h3><p>收集灵感，整理方向。把今天的想法，变成明天的作品。</p>
+      <div class="card-stats"><div><strong>12</strong><span>正在进行</span></div><div><strong>86<span>%</span></strong><span>本周进度</span></div></div>
+      <div class="progress-track"><div></div></div>
+      <button class="card-button" data-testid="project-toggle" aria-expanded="false" aria-controls="project-details">查看项目 <span>↗</span></button>
+      <div id="project-details" hidden><p>下一个里程碑</p><strong>完成 SourcePin 第一轮体验验收</strong></div>
+    </article>
+    <article class="activity-card" data-testid="activity-card"><div class="card-top"><span class="pill">THIS WEEK</span><span class="muted">↗ 18.6%</span></div><h3>灵感正在生长</h3><p>每一次小小的推进，都值得记下来。</p><div class="chart" aria-label="本周活动图"><div style="--bar:30%"></div><div style="--bar:50%"></div><div style="--bar:43%"></div><div style="--bar:74%"></div><div style="--bar:60%"></div><div style="--bar:91%"></div><div style="--bar:78%"></div></div><div class="chart-labels"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div><div class="activity-bottom"><strong>2,408 <small>次灵感</small></strong><span>持续积累中</span></div></article>
+    <article class="list-card" data-testid="list-card"><div class="card-top"><span class="pill">COLLECTION</span><button id="reorder" class="text-button">重排列表 ⇅</button></div><h3>值得留住的细节</h3><ul id="dynamic-list"><li data-conv-id="idea-a"><span class="list-icon sage">Aa</span><div><b>恰到好处的留白</b><small>设计笔记 · 刚刚</small></div><span>↗</span></li><li data-conv-id="idea-b"><span class="list-icon peach">◒</span><div><b>柔和的色彩搭配</b><small>视觉参考 · 2 小时前</small></div><span>↗</span></li><li data-conv-id="idea-c"><span class="list-icon lavender">⌘</span><div><b>顺手的交互反馈</b><small>体验灵感 · 昨天</small></div><span>↗</span></li></ul><button class="text-button" id="add-item">＋ 添加一条灵感</button></article>
+  </section>
+
+  <section class="instructions" id="how"><div><span class="eyebrow">HOW IT WORKS</span><h2>三步，带走上下文。</h2><p>Lite 用来定位，Pro 用来复现。<br>两个模式，都可以免费使用。</p></div><ol><li><span>01</span><div><h4>唤起，然后选择</h4><p>点击上方按钮，或安装后点击扩展图标。Shift + 点击可多选。</p></div></li><li><span>02</span><div><h4>复制，或者保存</h4><p>按 ⌘ / Ctrl + C 复制提示词；按黄色 M 保存完整 Markdown。</p></div></li><li><span>03</span><div><h4>让交互也留下来</h4><p>齿轮切换 Pro，蓝色按钮打开设置，开始录制后正常操作网页，完成时停止。</p></div></li></ol></section>
+
+  <details class="advanced"><summary>更多验收场景 <span>Shadow DOM / iframe / Canvas / 隐私字段</span></summary><div class="advanced-grid"><section><h4>原生输入与复制</h4><label>输入框<input id="copy-input" value="这段文字应仍能正常复制"></label><label>密码<input type="password" value="SOURCEPIN_TEST_PASSWORD"></label><div contenteditable="true" id="editable">选中这段文字，测试原生复制。</div><div data-token="SOURCEPIN_TEST_TOKEN" data-testid="privacy-target">这个组件含有测试敏感属性，导出应自动过滤。</div></section><section><h4>开放 Shadow DOM</h4><demo-widget></demo-widget><h4>同源 iframe</h4><iframe title="同源组件" src="/demo/frame.html"></iframe></section><section><h4>Canvas 视觉对象</h4><canvas id="art-canvas" width="300" height="150" aria-label="抽象圆形画布"></canvas><p>只提供可获得的视觉与定位信息，不假装读取 3D 场景。</p></section></div></details>
+  <section class="bookmark"><div><strong>想用书签版？</strong><p>把右侧链接拖入书签栏，再在目标网页点击它。受页面 CSP 限制。</p></div><a id="bookmarklet" href="#">拖入书签栏 · SourcePin ↗</a></section>
+  <footer><span>SourcePin · A little context goes a long way.</span><span>本地采集 · 无需账号 · 没有上传</span></footer>
+</main><script src="/demo/demo.js" defer></script>
+</body></html>

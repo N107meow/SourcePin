@@ -1,0 +1,244 @@
+import type { InspectorUI, Rect, Settings, UIActions, UIState } from '../types';
+import { INSPECTOR_CSS } from './styles';
+
+const q = <T extends Element>(root: ShadowRoot, selector: string): T => root.querySelector(selector) as T;
+
+export function createUI(actions: UIActions, initial: UIState, assetUrl: string): InspectorUI {
+  const host = document.createElement('sourcepin-inspector');
+  host.dataset.sourcepinRoot = '';
+  host.setAttribute('aria-label', 'SourcePin inspector');
+  const root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<style>${INSPECTOR_CSS}</style>
+    <div class="overlay-layer"><div class="highlight" hidden><span class="highlight-label"></span></div><div class="selections"></div></div>
+    <div class="stage">
+      <section class="panel" data-panel="settings" aria-label="设置" hidden>
+        <div class="panel-head"><span data-text="settings">设置</span><button class="panel-close" data-action="panel-close" aria-label="关闭设置"></button></div>
+        <label class="field"><span data-text="language">输出语言</span><select name="language"><option value="zh">中文</option><option value="en">English</option></select></label>
+        <label class="field"><span data-text="maxNodes">最大节点数</span><input name="maxNodes" type="number" min="20" max="1000" step="10"></label>
+        <label class="field"><span data-text="maxDepth">最大深度</span><input name="maxDepth" type="number" min="1" max="12"></label>
+        <div class="panel-actions"><button class="panel-action" data-action="record"></button><button class="panel-action" data-action="repick">重新选择元素</button></div>
+      </section>
+      <section class="panel" data-panel="capture" aria-label="画面采集" hidden>
+        <div class="panel-head"><span data-text="capture">画面采集</span><button class="panel-close" data-action="panel-close" aria-label="关闭画面采集"></button></div>
+        <div class="panel-actions"><button class="panel-action" data-action="component-shot">截取组件</button><button class="panel-action" data-action="viewport-shot">截取当前视口</button><button class="panel-action" data-action="whole-page">捕获整页 DOM</button><button class="panel-action" data-action="add-viewport">追加当前视口</button></div>
+      </section>
+      <section class="panel" data-panel="preview" aria-label="Markdown 预览" hidden>
+        <div class="panel-head"><span data-text="preview">预览</span><button class="panel-close" data-action="panel-close" aria-label="关闭预览"></button></div><pre class="preview"></pre>
+      </section>
+      <section class="panel" data-panel="onboarding" aria-label="欢迎使用 SourcePin" hidden>
+        <div class="panel-head"><span>选中组件，交给 AI</span></div>
+        <p>默认使用 Lite 模式、中文输出并手动开始状态录制。点击网页元素后，按 Cmd/Ctrl+C 复制提示词。</p>
+        <button class="panel-action" data-action="onboarding-done">开始选择</button>
+      </section>
+      <div class="robot" data-mode="lite">
+        <img class="asset asset-lite" width="188" height="264" alt="SourcePin 机器人" draggable="false">
+        <img class="asset asset-pro" width="188" height="264" alt="" draggable="false">
+        <button class="drag-handle" aria-label="拖动 SourcePin"></button>
+        <button class="screen" type="button" data-action="preview-panel" aria-label="预览捕获内容" title="双击或按 Enter 预览"><span class="screen-count"></span><span class="screen-status"></span><span class="screen-match"></span><span class="screen-summary"></span></button>
+        <button class="hotspot copy" data-action="copy" aria-label="复制 Markdown"></button>
+        <button class="hotspot settings-button" data-action="settings-panel" aria-label="打开设置"></button>
+        <button class="hotspot capture" data-action="capture-panel" aria-label="打开画面采集"></button>
+        <button class="hotspot download" data-action="download" aria-label="下载 Markdown"></button>
+        <button class="hotspot gear" data-action="mode-picker" aria-label="选择 Lite 或 Pro 模式"></button>
+        <button class="inspector-close" data-action="close" aria-label="关闭 SourcePin">×</button>
+        <div class="mode-picker" hidden><button class="mode-switch" data-action="mode" role="switch" aria-label="切换 Lite 或 Pro 模式"></button><span class="mode-label"></span></div>
+      </div><div class="toast" role="status" aria-live="polite"></div>
+    </div>`;
+  document.documentElement.append(host);
+
+  const robot = q<HTMLElement>(root, '.robot');
+  const stage = q<HTMLElement>(root, '.stage');
+  const image = q<HTMLImageElement>(root, '.asset-lite');
+  const proImage = q<HTMLImageElement>(root, '.asset-pro');
+  const toastNode = q<HTMLElement>(root, '.toast');
+  let state = initial;
+  let toastTimer: number | undefined;
+  let hidden = false;
+  image.src = assetUrl;
+  proImage.src = assetUrl;
+  fetch(assetUrl).then(response => response.text()).then(svg => {
+    const recolored = svg
+      .replaceAll('#59AC9D', '#FF003F')
+      .replaceAll('#3F8B7E', '#E60038')
+      .replaceAll('#D4EDE3', '#FFD1D9');
+    proImage.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(recolored)}`;
+  }).catch(() => {});
+
+  const panels = () => Array.from(root.querySelectorAll<HTMLElement>('.panel'));
+  const placePanels = () => {
+    const hostRect = host.getBoundingClientRect();
+    panels().filter(panel => !panel.hidden).forEach(panel => {
+      const width = Math.min(340, innerWidth - 16);
+      panel.style.width = `${width}px`;
+      const height = panel.getBoundingClientRect().height;
+      const beside = hostRect.left >= width + 8;
+      const left = beside ? hostRect.left - width - 8 : Math.max(8, Math.min(innerWidth - width - 8, hostRect.left));
+      const top = Math.max(8, Math.min(innerHeight - height - 8, hostRect.bottom - height));
+      Object.assign(panel.style, { left: `${left}px`, top: `${top}px`, right: 'auto', bottom: 'auto' });
+    });
+  };
+  const closePanel = (): boolean => {
+    const open = panels().find(panel => !panel.hidden);
+    if (!open) return false;
+    open.hidden = true;
+    return true;
+  };
+  const openPanel = (name: string) => {
+    const target = q<HTMLElement>(root, `[data-panel="${name}"]`);
+    const wasOpen = !target.hidden;
+    panels().forEach(panel => { panel.hidden = true; });
+    target.hidden = wasOpen;
+    if (!target.hidden) requestAnimationFrame(placePanels);
+  };
+  const changedSettings = () => {
+    const settings: Settings = {
+      ...state.settings,
+      language: q<HTMLSelectElement>(root, '[name="language"]').value as Settings['language'],
+      maxNodes: Number(q<HTMLInputElement>(root, '[name="maxNodes"]').value),
+      maxDepth: Number(q<HTMLInputElement>(root, '[name="maxDepth"]').value),
+    };
+    update({ ...state, settings });
+    actions.settings(settings);
+  };
+
+  root.addEventListener('click', event => {
+    const button = (event.target as Element).closest<HTMLElement>('[data-action]');
+    if (!button) return;
+    const action = button.dataset.action;
+    if (action === 'copy') actions.copy();
+    else if (action === 'download') actions.download();
+    else if (action === 'repick') actions.repick();
+    else if (action === 'close') actions.close();
+    else if (action === 'mode-picker') q<HTMLElement>(root, '.mode-picker').hidden = !q<HTMLElement>(root, '.mode-picker').hidden;
+    else if (action === 'mode') { q<HTMLElement>(root, '.mode-picker').hidden = true; actions.settings({ ...state.settings, mode: state.mode === 'lite' ? 'pro' : 'lite' }); }
+    else if (action === 'settings-panel') openPanel('settings');
+    else if (action === 'capture-panel') openPanel('capture');
+    else if (action === 'preview-panel') openPanel('preview');
+    else if (action === 'record') actions.record();
+    else if (action === 'component-shot') actions.screenshot(true);
+    else if (action === 'viewport-shot') actions.screenshot(false);
+    else if (action === 'whole-page') actions.wholePage();
+    else if (action === 'add-viewport') actions.addViewport();
+    else if (action === 'onboarding-done') {
+      const settings = { ...state.settings, onboardingDone: true };
+      q<HTMLElement>(root, '[data-panel="onboarding"]').hidden = true;
+      update({ ...state, settings });
+      actions.settings(settings);
+    }
+    else if (action === 'panel-close') closePanel();
+  });
+  root.addEventListener('change', changedSettings);
+  q(root, '.screen').addEventListener('dblclick', event => { event.preventDefault(); openPanel('preview'); });
+
+  let drag: { x: number; y: number; left: number; top: number } | null = null;
+  const dragHandle = q<HTMLElement>(root, '.drag-handle');
+  dragHandle.addEventListener('pointerdown', event => {
+    const rect = host.getBoundingClientRect();
+    drag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+    dragHandle.setPointerCapture(event.pointerId);
+  });
+  dragHandle.addEventListener('pointermove', event => {
+    if (!drag) return;
+    const left = Math.max(0, Math.min(innerWidth - stage.offsetWidth, drag.left + event.clientX - drag.x));
+    const top = Math.max(0, Math.min(innerHeight - stage.offsetHeight, drag.top + event.clientY - drag.y));
+    Object.assign(host.style, { left: `${left}px`, top: `${top}px`, right: 'auto', bottom: 'auto' });
+    placePanels();
+  });
+  const endDrag = () => { drag = null; };
+  dragHandle.addEventListener('pointerup', endDrag);
+  dragHandle.addEventListener('pointercancel', endDrag);
+
+  const constrain = () => {
+    const rect = host.getBoundingClientRect();
+    if (rect.right > innerWidth || rect.bottom > innerHeight || rect.left < 0 || rect.top < 0) {
+      const left = Math.max(0, Math.min(innerWidth - rect.width, rect.left));
+      const top = Math.max(0, Math.min(innerHeight - rect.height, rect.top));
+      Object.assign(host.style, { left: `${left}px`, top: `${top}px`, right: 'auto', bottom: 'auto' });
+    }
+    placePanels();
+  };
+  addEventListener('resize', constrain);
+
+  const update = (next: UIState) => {
+    state = next;
+    const en = next.settings.language === 'en';
+    robot.dataset.mode = next.mode;
+    robot.classList.toggle('busy', next.busy);
+    const showText = next.count > 0 && next.summary.length > 0 && next.summary.length <= 80;
+    q<HTMLElement>(root, '.screen').dataset.content = String(showText);
+    q<HTMLElement>(root, '.screen-status').textContent = showText ? next.status : '';
+    q<HTMLElement>(root, '.screen-match').textContent = showText ? (next.matched ? (en ? 'Exact match' : '定位准确') : (en ? 'Check locator' : '定位待确认')) : '';
+    q<HTMLElement>(root, '.screen-summary').textContent = showText ? next.summary : '';
+    q<HTMLElement>(root, '.screen-count').textContent = next.count ? String(next.count) : '';
+    q<HTMLElement>(root, '.copy').dataset.copied = String(next.copied);
+    q<HTMLElement>(root, '.copy').setAttribute('aria-label', next.copied ? '已复制' : '复制 Markdown');
+    const labels: Record<string, string> = en ? {
+      settings: 'Settings', language: 'Output language', maxNodes: 'Maximum nodes', maxDepth: 'Maximum depth', capture: 'Capture', preview: 'Preview',
+    } : { settings: '设置', language: '输出语言', maxNodes: '最大节点数', maxDepth: '最大深度', capture: '画面采集', preview: '预览' };
+    root.querySelectorAll<HTMLElement>('[data-text]').forEach(node => { node.textContent = labels[node.dataset.text || ''] || ''; });
+    const aria: Record<string, string> = en ? {
+      '.screen': 'Preview capture', '.settings-button': 'Open settings', '.capture': 'Open capture', '.drag-handle': 'Drag SourcePin', '.gear': 'Choose Lite or Pro mode', '.mode-switch': 'Switch Lite or Pro mode',
+      '[data-action="component-shot"]': 'Capture component', '[data-action="viewport-shot"]': 'Capture viewport', '[data-action="whole-page"]': 'Capture whole-page DOM',
+    } : {
+      '.screen': '预览捕获内容', '.settings-button': '打开设置', '.capture': '打开画面采集', '.drag-handle': '拖动 SourcePin', '.gear': '选择 Lite 或 Pro 模式', '.mode-switch': '切换 Lite 或 Pro 模式',
+    };
+    Object.entries(aria).forEach(([selector, label]) => q<HTMLElement>(root, selector).setAttribute('aria-label', label));
+    q<HTMLElement>(root, '[data-panel="settings"] .panel-close').setAttribute('aria-label', en ? 'Close settings' : '关闭设置');
+    q<HTMLElement>(root, '[data-panel="capture"] .panel-close').setAttribute('aria-label', en ? 'Close capture' : '关闭画面采集');
+    q<HTMLElement>(root, '[data-panel="preview"] .panel-close').setAttribute('aria-label', en ? 'Close preview' : '关闭预览');
+    q<HTMLElement>(root, '[data-action="repick"]').textContent = en ? 'Pick another element' : '重新选择元素';
+    q<HTMLElement>(root, '[data-action="component-shot"]').textContent = en ? 'Capture component' : '截取组件';
+    q<HTMLElement>(root, '[data-action="viewport-shot"]').textContent = en ? 'Capture viewport' : '截取当前视口';
+    q<HTMLElement>(root, '[data-action="whole-page"]').textContent = en ? 'Capture whole-page DOM' : '捕获整页 DOM';
+    q<HTMLElement>(root, '[data-action="add-viewport"]').textContent = en ? 'Add current viewport' : '追加当前视口';
+    q<HTMLElement>(root, '.mode-label').textContent = next.mode.toUpperCase();
+    q<HTMLElement>(root, '.mode-switch').setAttribute('aria-checked', String(next.mode === 'pro'));
+    q<HTMLSelectElement>(root, '[name="language"]').value = next.settings.language;
+    q<HTMLInputElement>(root, '[name="maxNodes"]').value = String(next.settings.maxNodes);
+    q<HTMLInputElement>(root, '[name="maxDepth"]').value = String(next.settings.maxDepth);
+    q<HTMLElement>(root, '[data-action="record"]').textContent = next.recording ? (en ? 'Stop recording' : '停止录制') : (en ? 'Start recording' : '开始录制');
+    q<HTMLElement>(root, '[data-action="record"]').classList.toggle('danger', next.recording);
+    q<HTMLElement>(root, '.preview').textContent = next.markdown || '尚未捕获内容。';
+    host.style.display = hidden ? 'none' : '';
+    requestAnimationFrame(constrain);
+    if (!next.settings.onboardingDone && panels().every(panel => panel.hidden)) openPanel('onboarding');
+  };
+
+  update(initial);
+  const api: InspectorUI = {
+    host,
+    update,
+    toast(message) {
+      toastNode.textContent = message;
+      toastNode.dataset.show = 'true';
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => { toastNode.dataset.show = 'false'; }, 2200);
+    },
+    contains(event) { return event.composedPath().includes(host); },
+    closePanel,
+    destroy() {
+      if (toastTimer) clearTimeout(toastTimer);
+      removeEventListener('resize', constrain);
+      host.remove();
+    },
+    highlight(rect: Rect | null, label = '', selected = false, color) {
+      const node = q<HTMLElement>(root, '.highlight');
+      node.hidden = !rect;
+      if (!rect) return;
+      Object.assign(node.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px`, borderColor: color || '' });
+      node.dataset.selected = String(selected);
+      q<HTMLElement>(root, '.highlight-label').textContent = label;
+    },
+    selections(rects: Rect[]) {
+      const layer = q<HTMLElement>(root, '.selections');
+      layer.replaceChildren(...rects.map(rect => {
+        const node = document.createElement('div');
+        node.className = 'selection';
+        Object.assign(node.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+        return node;
+      }));
+    },
+    hide(value: boolean) { hidden = value; host.style.display = value ? 'none' : ''; },
+  };
+  return api;
+}
