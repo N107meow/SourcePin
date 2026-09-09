@@ -2,7 +2,19 @@
 
 SourcePin 是一个本地运行的网页元素采集工具。点击网页组件后，它会生成可交给 AI 的定位、结构和样式上下文。Lite 适合定位，Pro 会采集更完整的复现信息和用户实际触发的交互状态。无需账号，采集结果不会上传。
 
-## 安装 Chrome 扩展
+## 安装到浏览器书签栏（主要方式）
+
+1. 打开 SourcePin 安装页。本地验收地址为 <http://127.0.0.1:4317/dist/site/index.html>；正式发布后使用同仓库的 GitHub Pages 地址。
+2. 显示浏览器书签栏，将页面上的 **SourcePin** 标签拖进去。
+3. 打开要采集的普通网页，点击书签栏里的 SourcePin，即可唤起掌机。
+
+无需用户安装 Node.js、启动本地服务或加载 Chrome 扩展。书签包含完整工具代码；更新版本时从安装页重新拖入并替换旧书签。不能拖拽时，安装页提供手动创建书签的完整代码。
+
+GitHub 的仓库 README 会净化可执行链接，因此采用“仓库首页 → GitHub Pages 安装页 → 拖进书签栏”的路线。[GitHub Markup 说明](https://github.com/github/markup)、[GitHub Pages 说明](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。
+
+当前为本地验收阶段，已经生成可发布的 `dist/site/` 和 `dist/sourcepin-site.zip`，尚未公开上传。正式发布步骤见 [GitHub 分发说明](docs/PUBLISHING.md)。
+
+## Chrome 扩展（可选增强版）
 
 项目已经提供 `dist/sourcepin-0.1.0-chrome.zip` 和 `dist/extension`：
 
@@ -18,10 +30,10 @@ SourcePin 是一个本地运行的网页元素采集工具。点击网页组件�
 - 指向元素查看高亮，点击选择；点击不会自动复制，也不会执行原网页操作。
 - 按住 Shift 点击可多选，再按 `Cmd/Ctrl+C` 或掌机红色圆钮复制摘要。
 - 黄色 M 按钮下载完整 Markdown；双击屏幕或聚焦屏幕后按 Enter 可打开预览。
-- 齿轮切换 Lite/Pro。蓝色圆钮打开设置；三角按钮打开截图、整页 DOM 和追加视口操作。
-- Pro 录制只记录你真实触发的 hover、focus、点击和页面变化。停止录制后，进入设置并点“重新选择元素”，才能恢复拾取。
+- 机身下方的 Switch 切换 Lite/Pro，齿轮可聚焦此开关。蓝色圆钮打开设置；三角按钮打开截图、整页 DOM 和追加视口操作。
+- Pro 录制只记录你真实触发的 hover、focus、点击和页面变化。停止录制后，按一次 Esc 或在设置中点“重新选择元素”恢复拾取。
 - 截图只包含当前可见视口；组件截图也只能裁剪目标当前可见的部分。追加不同视口前，需要手动调整浏览器窗口大小，再点“追加当前视口”。
-- 按 Esc 先关闭当前面板，再按一次退出 SourcePin。
+- 第一次按 Esc 取消选择、停止录制并收起面板；第二次按 Esc 退出。重新选择组件后从第一次 Esc 重新计算，长按不会误触退出。
 
 HTML 与 CSS 是选择时的快照。页面变化后应重新选择，以更新结构、样式和定位结果；复制或导出前工具会再次检查定位。普通线上网页通常没有源码文件和行号，只有页面提供 React/Vue 等开发元数据时才可能得到来源信息。
 

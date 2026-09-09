@@ -24,7 +24,7 @@ test.before(async () => {
 test.after(async () => browser?.close());
 
 async function fixture(viewport = { width: 900, height: 700 }) {
-  const page = await browser.newPage({ viewport });
+  const page = await browser.newPage({ viewport, deviceScaleFactor: 2 });
   await page.setContent('<style>button{all:unset!important}</style><main>page</main>');
   await page.addScriptTag({ content: bundle });
   await page.evaluate(assetUrl => {
@@ -180,4 +180,53 @@ test('update, overlays, containment, viewport constraints and lifecycle are stat
   if (process.env.SOURCEPIN_UI_SCREENSHOT) await page.screenshot({ path: process.env.SOURCEPIN_UI_SCREENSHOT });
   await page.evaluate(() => ui.destroy());
   assert.equal(await page.locator('sourcepin-inspector').count(), 0);
+});
+
+test('reference switch stays below the robot at exact track, thumb and label sizes',async()=>{
+  const page=await fixture();
+  const result=await page.locator('.mode-switch').evaluate(el=>{
+    const s=getComputedStyle(el),thumb=getComputedStyle(el,'::after');const root=el.getRootNode();
+    const label=root.querySelector('.mode-label');const art=root.querySelector('.asset');
+    return {visible:el.checkVisibility(),size:[el.offsetWidth,el.offsetHeight],border:s.boxShadow.match(/([\d.]+)px inset$/)?.[1],thumb:[thumb.width,thumb.height,thumb.borderTopWidth],font:getComputedStyle(label).fontSize,below:el.getBoundingClientRect().top>=art.getBoundingClientRect().bottom,labelBelow:label.getBoundingClientRect().top>=el.getBoundingClientRect().bottom};
+  });
+  assert.deepEqual(result,{visible:true,size:[44,22],border:'2.5',thumb:['15px','15px','2px'],font:'9px',below:true,labelBelow:true});
+  await page.close();
+});
+
+test('press animates the visible vector button and respects reduced motion',async()=>{
+  const page=await fixture();
+  await page.waitForFunction(()=>document.querySelector('sourcepin-inspector').shadowRoot.querySelector('.asset-lite')?.tagName.toLowerCase()==='svg');
+  const circle=page.locator('.asset-lite [id="Vector_9"]');
+  const button=page.locator('.copy');const box=await button.boundingBox();
+  await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();
+  await page.waitForTimeout(100);
+  assert.notEqual(await circle.evaluate(el=>getComputedStyle(el).transform),'none');
+  await page.mouse.up();await page.waitForTimeout(400);
+  assert.equal(await circle.evaluate(el=>getComputedStyle(el).transform),'none');
+  await page.emulateMedia({reducedMotion:'reduce'});await button.click();
+  assert.equal(await circle.evaluate(el=>el.getAnimations().length),0);
+  await page.close();
+});
+
+test('only the active vector theme is visible so the body shadow is drawn once',async()=>{
+  const page=await fixture();await page.locator('svg.asset-lite').waitFor();
+  assert.equal(await page.locator('.asset-lite').isVisible(),true);
+  assert.equal(await page.locator('.asset-pro').isVisible(),false);
+  assert.equal(await page.locator('.asset-lite [id="Vector"]').getAttribute('fill'),'#59AC9D');
+  await page.evaluate(()=>ui.update({mode:'pro',status:'',count:0,summary:'',copied:false,busy:false,recording:false,matched:false,markdown:'',settings:{mode:'pro',language:'zh',maxNodes:300,maxDepth:6,onboardingDone:true}}));
+  assert.equal(await page.locator('.asset-lite').isVisible(),false);
+  assert.equal(await page.locator('.asset-pro').isVisible(),true);
+  await page.close();
+});
+
+test('Lite and Pro use the same single-pass shadow opacity',async()=>{
+  const page=await fixture();await page.locator('svg.asset-lite').waitFor();
+  const pixel=async()=>{
+    const png=await page.screenshot({clip:await page.locator('.stage').boundingBox()});
+    return page.evaluate(async data=>{const img=new Image();img.src=data;await img.decode();const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;const c=canvas.getContext('2d');c.drawImage(img,0,0);return [...c.getImageData(394,312,1,1).data];},'data:image/png;base64,'+png.toString('base64'));
+  };
+  const lite=await pixel();
+  await page.evaluate(()=>ui.update({mode:'pro',status:'',count:0,summary:'',copied:false,busy:false,recording:false,matched:false,markdown:'',settings:{mode:'pro',language:'zh',maxNodes:300,maxDepth:6,onboardingDone:true}}));
+  const pro=await pixel();assert.deepEqual(pro,lite);assert.ok(lite[0]>170&&lite[0]<220);
+  await page.close();
 });

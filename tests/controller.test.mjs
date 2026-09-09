@@ -22,6 +22,9 @@ test('picker selects without invoking page, copies only on command, respects edi
     await page.keyboard.press('Control+c');
     assert.equal(await page.evaluate(()=>window.copied),'unchanged');
     await page.keyboard.press('Escape');
+    assert.equal(await page.locator('[data-sourcepin-root]').count(),1);
+    assert.equal(await page.locator('.screen-count').textContent(),'');
+    await page.keyboard.press('Escape');
     assert.equal(await page.locator('[data-sourcepin-root]').count(),0);
     assert.equal(await page.evaluate(()=>window.closedInspector),true);
     await page.getByTestId('chosen').click();
@@ -84,5 +87,23 @@ test('hover highlight clears when pointer enters inspector controls',async()=>{
     assert.equal(await page.locator('.highlight').isVisible(),true);
     await page.locator('.gear').hover();await page.waitForTimeout(30);
     assert.equal(await page.locator('.highlight').isVisible(),false);
+  }finally{await browser.close();}
+});
+
+
+test('Escape cancels selection and panels, ignores repeat, and rearms after selecting again',async()=>{
+  const browser=await chromium.launch({headless:true});
+  try{
+    const page=await browser.newPage();await page.setContent('<button data-testid="escape">Choose</button>');
+    await page.addScriptTag({content:await controllerFixture('lite')});await page.evaluate(()=>window.startTest());
+    await page.getByTestId('escape').click();await settled(page);
+    await page.locator('[data-action="settings-panel"]').click();
+    await page.keyboard.down('Escape');await page.keyboard.down('Escape');await page.keyboard.up('Escape');
+    assert.equal(await page.locator('.screen-count').textContent(),'');
+    assert.equal(await page.locator('[data-panel="settings"]').isVisible(),false);
+    assert.equal(await page.locator('[data-sourcepin-root]').count(),1);
+    await page.getByTestId('escape').click();await settled(page);
+    await page.keyboard.press('Escape');assert.equal(await page.locator('[data-sourcepin-root]').count(),1);
+    await page.keyboard.press('Escape');assert.equal(await page.locator('[data-sourcepin-root]').count(),0);
   }finally{await browser.close();}
 });

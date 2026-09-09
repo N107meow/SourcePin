@@ -4,8 +4,8 @@ export const INSPECTOR_CSS = `
 button, input, select { font: inherit; }
 button { margin: 0; border: 0; color: inherit; cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #fff; box-shadow: 0 0 0 5px #1c1008; }
-.stage { position: relative; width: 220px; height: 326px; user-select: none; touch-action: none; }
-.robot { position: absolute; left: 16px; top: 30px; width: 188px; height: 280px; }
+.stage { position: relative; width: 220px; height: 348px; user-select: none; touch-action: none; }
+.robot { position: absolute; left: 16px; top: 16px; width: 188px; height: 316px; }
 .asset { position: absolute; inset: 0 auto auto 0; display: block; width: 188px; height: 264px; object-fit: contain; pointer-events: none; }
 .asset-pro { display: none; }
 .robot[data-mode="pro"] .asset-lite { display: none; }
@@ -14,7 +14,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .drag-handle:active { cursor: grabbing; }
 .hotspot { position: absolute; display: grid; place-items: center; background: transparent; border-radius: 50%; }
 .copy { left: 132px; top: 158px; width: 24px; height: 24px; }
-.copy[data-copied="true"]::after { content: ""; width: 23px; height: 23px; border-radius: 50%; background: #42d47b; box-shadow: inset 0 0 0 3px #1c1008; }
+.robot[data-copied="true"] .asset [id="Vector_9"] { fill: #42d47b; }
+.asset [id^="Vector"], .asset [id="Group"] { transform-box: fill-box; transform-origin: center; }
 .settings-button { left: 136px; top: 187px; width: 21px; height: 21px; }
 .capture { left: 114px; top: 207px; width: 24px; height: 20px; border-radius: 6px; }
 .download { left: 38px; top: 184px; width: 38px; height: 38px; border-radius: 6px; }
@@ -29,13 +30,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .screen-summary { max-width: 112px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; opacity: .72; }
 .screen-count { position: absolute; right: 7px; top: 6px; min-width: 19px; padding: 2px 5px; color: white; background: #1c1008; border-radius: 10px; font-size: 9px; }
 .screen-count:empty { display: none; }
-.mode-picker { position: absolute; left: 57px; top: -31px; display: flex; align-items: center; gap: 7px; height: 28px; padding: 2px 7px; border: 3px solid #1c1008; border-radius: 16px; background: #fffdf6; box-shadow: 3px 3px 0 rgb(28 16 8 / .2); }
-.mode-picker[hidden] { display: none; }
-.mode-switch { position: relative; width: 44px; height: 22px; border: 3px solid #1c1008; border-radius: 12px; background: #59ac9d; }
-.mode-switch::after { content: ""; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border: 2px solid #1c1008; border-radius: 50%; background: white; transition: transform .18s ease; }
-.robot[data-mode="pro"] .mode-switch { background: #ff0040; }
-.robot[data-mode="pro"] .mode-switch::after { transform: translateX(22px); }
-.mode-label { min-width: 25px; letter-spacing: .04em; font-size: 10px; }
+.mode-picker { position: absolute; left: 0; right: 0; top: 272px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.mode-switch { flex: none; position: relative; width: 44px; height: 22px; padding: 0; border: 0; box-shadow: inset 0 0 0 2.5px #1c1008; border-radius: 999px; background: #59ac9d; }
+.mode-switch:focus-visible { outline: 2px dashed #1c1008; outline-offset: 3px; box-shadow: inset 0 0 0 2.5px #1c1008; }
+.mode-switch::after { content: ""; position: absolute; left: 3.5px; top: 50%; width: 15px; height: 15px; border: 2px solid #1c1008; border-radius: 50%; background: white; transform: translateY(-50%); transition: transform .18s ease; }
+.robot[data-mode="pro"] .mode-switch { background: #ff003f; }
+.robot[data-mode="pro"] .mode-switch::after { transform: translate(22px, -50%); }
+.mode-label { letter-spacing: .06em; font-size: 9px; line-height: 12px; font-weight: 800; }
 .panel { position: fixed; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto; padding: 16px; border: 5px solid #1c1008; border-radius: 22px; background: #fffdf6; box-shadow: 8px 9px 0 rgb(28 16 8 / .22); user-select: text; }
 .panel[hidden] { display: none; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 15px; }
@@ -47,7 +48,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .panel-action { min-height: 38px; padding: 7px 11px; border: 3px solid #1c1008; border-radius: 12px; background: #63c9b7; text-align: left; }
 .panel-action.danger { background: #ff3d67; }
 .preview { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.toast { position: absolute; right: 12px; bottom: 0; max-width: 200px; padding: 8px 12px; border: 3px solid #1c1008; border-radius: 12px; background: #fff; box-shadow: 4px 4px 0 rgb(28 16 8 / .2); opacity: 0; transform: translateY(8px); transition: .16s ease; pointer-events: none; }
+.toast { position: absolute; right: 12px; bottom: 52px; max-width: 200px; padding: 8px 12px; border: 3px solid #1c1008; border-radius: 12px; background: #fff; box-shadow: 4px 4px 0 rgb(28 16 8 / .2); opacity: 0; transform: translateY(8px); transition: .16s ease; pointer-events: none; }
 .toast[data-show="true"] { opacity: 1; transform: none; }
 .highlight, .selection { position: fixed; z-index: 2147483646; pointer-events: none; border: 3px dashed #00a88f; box-shadow: 0 0 0 2px white, 0 0 0 4px #1c1008; }
 .highlight[data-selected="true"], .selection { border-style: solid; }

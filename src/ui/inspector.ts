@@ -41,7 +41,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
         <button class="hotspot download" data-action="download" aria-label="下载 Markdown"></button>
         <button class="hotspot gear" data-action="mode-picker" aria-label="选择 Lite 或 Pro 模式"></button>
         <button class="inspector-close" data-action="close" aria-label="关闭 SourcePin">×</button>
-        <div class="mode-picker" hidden><button class="mode-switch" data-action="mode" role="switch" aria-label="切换 Lite 或 Pro 模式"></button><span class="mode-label"></span></div>
+        <div class="mode-picker"><button class="mode-switch" data-action="mode" role="switch" aria-label="切换 Lite 或 Pro 模式"></button><span class="mode-label"></span></div>
       </div><div class="toast" role="status" aria-live="polite"></div>
     </div>`;
   document.documentElement.append(host);
@@ -56,13 +56,55 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   let hidden = false;
   image.src = assetUrl;
   proImage.src = assetUrl;
+  // The trusted bundled SVG stays vector-based so each visible control can move.
   fetch(assetUrl).then(response => response.text()).then(svg => {
-    const recolored = svg
-      .replaceAll('#59AC9D', '#FF003F')
-      .replaceAll('#3F8B7E', '#E60038')
-      .replaceAll('#D4EDE3', '#FFD1D9');
-    proImage.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(recolored)}`;
+    const install = (source: string, target: HTMLImageElement, className: string) => {
+      if (!host.isConnected) return;
+      const vector = new DOMParser().parseFromString(source, 'image/svg+xml').documentElement;
+      if (vector.localName !== 'svg') return;
+      vector.removeAttribute('style');
+      vector.setAttribute('class', className);
+      vector.setAttribute('aria-hidden', 'true');
+      // Separate URL-addressed filters: duplicate IDs across inline SVGs can
+      // make Chromium reuse the hidden theme's filter surface on a mode change.
+      const shadow = vector.querySelector('filter');
+      if (shadow) {
+        const shadowId = `sourcepin-shadow-${className.endsWith('pro') ? 'pro' : 'lite'}`;
+        shadow.id = shadowId;
+        vector.querySelectorAll('[filter]').forEach(node => node.setAttribute('filter', `url(#${shadowId})`));
+      }
+      target.replaceWith(document.importNode(vector, true));
+    };
+    install(svg, image, 'asset asset-lite');
+    install(svg.replaceAll('#59AC9D', '#FF003F').replaceAll('#3F8B7E', '#E60038').replaceAll('#D4EDE3', '#FFD1D9'), proImage, 'asset asset-pro');
   }).catch(() => {});
+
+  const iconIds: Record<string,string> = {copy:'Vector_9', 'settings-panel':'Vector_12', 'capture-panel':'Vector_13', download:'Vector_8', 'mode-picker':'Group'};
+  const animateButton = (button: HTMLElement, pressed: boolean) => {
+    const id = iconIds[button.dataset.action || ''];
+    const targets: Element[] = id ? [...root.querySelectorAll(`.asset [id="${id}"]`)] : [button];
+    for (const target of targets) {
+      for (const animation of target.getAnimations()) animation.cancel();
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) continue;
+      if (pressed) target.animate([{transform:'none'}, {transform:'translateY(1.5px) scale(.88)'}],{duration:90,fill:'forwards',easing:'ease-out'});
+      else target.animate([{transform:'translateY(1.5px) scale(.88)'},{transform:'translateY(-3px) scale(1.06)',offset:.45},{transform:'none'}],{duration:280,easing:'cubic-bezier(.22,.7,.3,1)'});
+    }
+  };
+  root.addEventListener('pointerdown', event => {
+    const button=(event.target as Element).closest<HTMLElement>('button[data-action]');
+    if (button) animateButton(button,true);
+  });
+  const releaseButtons = () => {
+    root.querySelectorAll<HTMLElement>('button[data-action]').forEach(button => {
+      const id=iconIds[button.dataset.action || ''];
+      const target=id ? root.querySelector(`.asset [id="${id}"]`) : button;
+      if(target?.getAnimations().some(animation=>animation.effect?.getTiming().fill==='forwards'))animateButton(button,false);
+    });
+  };
+  root.addEventListener('pointerup',releaseButtons);
+  root.addEventListener('pointercancel',releaseButtons);
+  root.addEventListener('pointerleave',releaseButtons);
+
 
   const panels = () => Array.from(root.querySelectorAll<HTMLElement>('.panel'));
   const placePanels = () => {
@@ -105,12 +147,13 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     const button = (event.target as Element).closest<HTMLElement>('[data-action]');
     if (!button) return;
     const action = button.dataset.action;
+    animateButton(button,false);
     if (action === 'copy') actions.copy();
     else if (action === 'download') actions.download();
     else if (action === 'repick') actions.repick();
     else if (action === 'close') actions.close();
-    else if (action === 'mode-picker') q<HTMLElement>(root, '.mode-picker').hidden = !q<HTMLElement>(root, '.mode-picker').hidden;
-    else if (action === 'mode') { q<HTMLElement>(root, '.mode-picker').hidden = true; actions.settings({ ...state.settings, mode: state.mode === 'lite' ? 'pro' : 'lite' }); }
+    else if (action === 'mode-picker') q<HTMLElement>(root, '.mode-switch').focus();
+    else if (action === 'mode') { actions.settings({ ...state.settings, mode: state.mode === 'lite' ? 'pro' : 'lite' }); }
     else if (action === 'settings-panel') openPanel('settings');
     else if (action === 'capture-panel') openPanel('capture');
     else if (action === 'preview-panel') openPanel('preview');
@@ -163,6 +206,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     state = next;
     const en = next.settings.language === 'en';
     robot.dataset.mode = next.mode;
+    robot.dataset.copied = String(next.copied);
     robot.classList.toggle('busy', next.busy);
     const showText = next.count > 0 && next.summary.length > 0 && next.summary.length <= 80;
     q<HTMLElement>(root, '.screen').dataset.content = String(showText);

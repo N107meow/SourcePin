@@ -11,7 +11,14 @@ await Promise.all([
 ]);
 await copyFile('public/manifest.json','dist/extension/manifest.json');
 const script=await readFile('dist/sourcepin.js','utf8');
-await writeFile('dist/sourcepin.bookmarklet.txt',`javascript:${encodeURIComponent(script)};void(0)`);
+const bookmarklet=`javascript:${encodeURIComponent(script)};void(0)`;
+await writeFile('dist/sourcepin.bookmarklet.txt',bookmarklet);
+await mkdir('dist/site',{recursive:true});
+const escaped=bookmarklet.replaceAll('&','&amp;').replaceAll('\"','&quot;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+await writeFile('dist/site/index.html',(await readFile('site/index.html','utf8')).replaceAll('{{BOOKMARKLET}}',escaped));
+await copyFile('src/assets/robot.svg','dist/site/robot.svg');
+await writeFile('dist/site/.nojekyll','');
 await writeFile('dist/extension/INSTALL.txt','SourcePin 0.1.0\n\n打开 chrome://extensions，开启开发者模式，点击“加载已解压的扩展程序”，选择本文件所在的 extension 文件夹。\n打开普通网页，点击 SourcePin 扩展图标或 Cmd/Ctrl+Shift+Y。\n点击只选中，Cmd/Ctrl+C 才复制。\n');
 try{execFileSync('zip',['-q','-r','../sourcepin-0.1.0-chrome.zip','.'],{cwd:'dist/extension'});}catch{console.warn('ZIP tool unavailable; unpacked extension is ready in dist/extension');}
-console.log('Built extension, Chrome ZIP and bookmarklet in dist/');
+execFileSync('zip',['-q','-r','../sourcepin-site.zip','.'],{cwd:'dist/site'});
+console.log('Built extension, bookmarklet and GitHub Pages installation site in dist/');

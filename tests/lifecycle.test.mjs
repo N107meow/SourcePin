@@ -14,7 +14,7 @@ test('rapid activation cannot let a cancelled startup erase the newer controller
     assert.equal(await page.evaluate(()=>window.__sourcepin===window.newPending),true);
     await page.evaluate(()=>window.settingsResolvers[1]({settings:{onboardingDone:true}}));
     assert.equal(await page.locator('[data-sourcepin-root]').count(),1);
-    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');await page.keyboard.press('Escape');
     assert.equal(await page.locator('[data-sourcepin-root]').count(),0);
     assert.equal(await page.evaluate(()=>window.__sourcepin),undefined);
   }finally{await browser.close();}

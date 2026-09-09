@@ -110,6 +110,8 @@ try{
   assert.doesNotMatch(await root.locator('.preview').textContent(),/SOURCEPIN_TEST_TOKEN|SOURCEPIN_TEST_PASSWORD/);
   await page.keyboard.press('Escape');
   results.push('Full export excludes seeded sensitive attributes and form values');
+  await page.getByTestId('privacy-target').click();
+  await page.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
 
   await root.locator('[data-action="capture-panel"]').click();
   const screenshotDownload=page.waitForEvent('download',{timeout:6000});
@@ -124,6 +126,8 @@ try{
   results.push('Extension captures and downloads visible component PNG then restores UI');
   await page.keyboard.press('Escape');
 
+  await page.getByTestId('privacy-target').click();
+  await page.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
   // Test the optional-download denial path deterministically: user gesture remains
   // in the real UI, only the unavailable optional permission is controlled.
   await worker.evaluate(()=>{chrome.permissions.request=async()=>false;});
@@ -142,6 +146,8 @@ try{
   await bookmarkPage.keyboard.press('Meta+c');
   await bookmarkPage.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.copy').dataset.copied==='true');
   assert.match(await bookmarkPage.evaluate(()=>navigator.clipboard.readText()),/project-toggle/);
+  await bookmarkPage.keyboard.press('Escape');assert.equal(await bookmarkRoot.count(),1);
+  assert.equal(await bookmarkRoot.locator('.screen-count').textContent(),'');
   await bookmarkPage.keyboard.press('Escape');assert.equal(await bookmarkRoot.count(),0);
   await bookmarkPage.close();
   results.push('Packaged javascript bookmarklet launches, captures, copies and cleans up');

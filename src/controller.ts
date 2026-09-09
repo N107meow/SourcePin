@@ -39,6 +39,7 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   let busy=false,copied=false,alive=true,picking=true,hover: Element | null=null;
   let status='指向元素，点击选中';let savedFilename: string | undefined;
   let operation: AbortController | undefined;let revision=0;let raf=0;
+  let escapeArmed=false;
   const documents=new Map<Document,()=>void>();
   const recordings=()=>recorder?.snapshot() || recorded;
   const markdown=(summary=false)=>renderMarkdown([...captures,...viewports],{summary,language:settings.language,recording:recordings(),savedFilename});
@@ -46,7 +47,7 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   const state=(): UIState=>({mode:settings.mode,status,count:selected.length,summary:captures.length ? `${describe(selected[0])}\n${captures[0].target.text.slice(0,70)}`:'',copied,busy,recording:!!recorder,matched:valid(),markdown:captures.length?markdown():'',settings});
   const ui=createUI({
     copy:()=>void copy(),download:()=>void download(),close:()=>destroy(),
-    repick:()=>{recorder?.dispose();recorder=undefined;recorded=undefined;picking=true;selected=[];captures=[];viewports=[];copied=false;operation?.abort();busy=false;revision++;status='指向元素，点击选中';ui.selections([]);update();},
+    repick:()=>resetSelection(),
     settings:(next)=>{
       const previous=settings;settings=normalizeSettings(next);void platform.saveSettings(settings).catch(()=>ui.toast('设置保存失败，本次会话仍然有效'));
       if(settings.mode!==previous.mode || settings.maxDepth!==previous.maxDepth || settings.maxNodes!==previous.maxNodes){
@@ -60,7 +61,15 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   },state(),assetUrl);
   const update=()=>{if(alive)ui.update(state());};
 
+  function resetSelection(){
+    recorder?.dispose();recorder=undefined;recorded=undefined;
+    operation?.abort();busy=false;picking=true;escapeArmed=false;hover=null;
+    selected=[];captures=[];viewports=[];copied=false;savedFilename=undefined;revision++;
+    status='指向元素，点击选中';ui.highlight(null);ui.selections([]);update();
+  }
+
   async function captureSelected(keepViewports=false) {
+    escapeArmed=false;
     operation?.abort();const current=new AbortController();operation=current;
     const targets=[...selected];busy=true;copied=false;savedFilename=undefined;status='正在捕获组件上下文…';revision++;
     if(!keepViewports)viewports=[];
@@ -149,7 +158,12 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   }
   function onKey(event: Event){
     const key=event as KeyboardEvent;
-    if(key.key==='Escape'){if(!ui.closePanel())destroy();return;}
+    if(key.key==='Escape'){
+      key.preventDefault();key.stopImmediatePropagation();if(key.repeat)return;
+      if(escapeArmed){destroy();return;}
+      resetSelection();while(ui.closePanel()){}escapeArmed=true;
+      ui.toast(settings.language==='en'?'Selection cleared · Esc again to close':'已取消选择 · 再按 Esc 退出');return;
+    }
     if(key.repeat || editable(key) || selectedText((event.currentTarget as Document)))return;
     if(!(key.metaKey || key.ctrlKey) || key.altKey)return;
     if(key.key.toLowerCase()==='c' && selected.length){

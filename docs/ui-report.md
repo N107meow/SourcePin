@@ -1,3 +1,5 @@
+> 本文为首版记录。2026-09-10 视觉修订已覆盖 Switch、SVG、动效和阴影，最新结果见 [TEST-REPORT.md](TEST-REPORT.md)。
+
 # SourcePin robot UI report
 
 Date: 2026-09-09
