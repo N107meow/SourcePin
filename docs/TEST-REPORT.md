@@ -1,5 +1,13 @@
 # SourcePin 整页 DOM、离线包与合规验证
 
+## 最新补充：Pro 机身颜色修复
+
+2026-09-10：修复页面 `connect-src` 限制阻止内置 SVG 的 fetch，导致 Pro 仍使用绿色备用图片的问题。`src/ui/inspector.ts` 现在直接解码内置 SVG data URL，保留按钮动画与两种主题的独立阴影。
+
+新增 `tests/pro-theme.test.mjs`：在 `connect-src 'none'` 页面运行实际书签入口，通过齿轮和 Switch 切换，断言 Pro 机身为 `rgb(255, 0, 63)`、屏框为 `#E60038`、屏幕为 `#FFD1D9`，切回 Lite 恢复绿色；修复前测试失败、修复后通过。截图见 `artifacts/pro-theme-csp.png`。
+
+本次 `npm run check` **78/78 通过**，类型检查及生产构建通过，日志见 `artifacts/pro-theme-check.log`。以下 P1/P2 端到端数字保留前轮实测记录；本次针对主题修复运行完整 check 与专用书签回归。
+
 验证日期：2026-09-10。此报告针对当前 P1/P2 实现，覆盖 P0 回归；历史设计文档未修改。
 
 ## 最终结果

@@ -64,7 +64,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   image.src = assetUrl;
   proImage.src = assetUrl;
   // The trusted bundled SVG stays vector-based so each visible control can move.
-  fetch(assetUrl).then(response => response.text()).then(svg => {
+  const installArtwork = (svg: string) => {
     const install = (source: string, target: HTMLImageElement, className: string) => {
       if (!host.isConnected) return;
       const vector = new DOMParser().parseFromString(source, 'image/svg+xml').documentElement;
@@ -84,7 +84,20 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     };
     install(svg, image, 'asset asset-lite');
     install(svg.replaceAll('#59AC9D', '#FF003F').replaceAll('#3F8B7E', '#E60038').replaceAll('#D4EDE3', '#FFD1D9'), proImage, 'asset asset-pro');
-  }).catch(() => {});
+  };
+  // Shipping adapters embed the SVG as a data URL. Decode it locally: fetch()
+  // is subject to the host page's connect-src CSP even for embedded data URLs.
+  if (assetUrl.startsWith('data:image/svg+xml')) {
+    const comma = assetUrl.indexOf(',');
+    const metadata = assetUrl.slice(0, comma);
+    const payload = assetUrl.slice(comma + 1);
+    const svg = /;base64$/i.test(metadata)
+      ? new TextDecoder().decode(Uint8Array.from(atob(payload), character => character.charCodeAt(0)))
+      : decodeURIComponent(payload);
+    installArtwork(svg);
+  } else {
+    fetch(assetUrl).then(response => response.text()).then(installArtwork).catch(() => {});
+  }
 
   const iconIds: Record<string,string> = {copy:'Vector_9', 'settings-panel':'Vector_12', 'capture-panel':'Vector_13', download:'Vector_8', 'mode-picker':'Group'};
   const animateButton = (button: HTMLElement, pressed: boolean) => {
