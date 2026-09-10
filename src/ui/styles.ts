@@ -31,6 +31,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .screen-count { position: absolute; right: 7px; top: 6px; min-width: 19px; padding: 2px 5px; color: white; background: #1c1008; border-radius: 10px; font-size: 9px; }
 .screen-count:empty { display: none; }
 .mode-picker { position: absolute; left: 0; right: 0; top: 272px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.mode-picker[hidden] { display: none; }
 .mode-switch { flex: none; position: relative; width: 44px; height: 22px; padding: 0; border: 0; box-shadow: inset 0 0 0 2.5px #1c1008; border-radius: 999px; background: #59ac9d; }
 .mode-switch:focus-visible { outline: 2px dashed #1c1008; outline-offset: 3px; box-shadow: inset 0 0 0 2.5px #1c1008; }
 .mode-switch::after { content: ""; position: absolute; left: 3.5px; top: 50%; width: 15px; height: 15px; border: 2px solid #1c1008; border-radius: 50%; background: white; transform: translateY(-50%); transition: transform .18s ease; }
@@ -39,6 +40,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .mode-label { letter-spacing: .06em; font-size: 9px; line-height: 12px; font-weight: 800; }
 .panel { position: fixed; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto; padding: 16px; border: 5px solid #1c1008; border-radius: 22px; background: #fffdf6; box-shadow: 8px 9px 0 rgb(28 16 8 / .22); user-select: text; }
 .panel[hidden] { display: none; }
+.panel[data-panel="preview"] { display: flex; flex-direction: column; padding: 10px; touch-action: pan-y; }
+.panel[data-panel="preview"][hidden] { display: none; }
+.panel[data-panel="preview"] .panel-head { flex: none; margin-bottom: 8px; }
+.panel[data-panel="preview"] .preview { min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 15px; }
 .panel-close { width: 28px; height: 28px; border: 3px solid #1c1008; border-radius: 50%; background: #ffcf27; }
 .panel-close::before { content: "×"; font-size: 19px; line-height: 18px; }

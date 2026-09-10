@@ -34,14 +34,14 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
         <img class="asset asset-lite" width="188" height="264" alt="SourcePin 机器人" draggable="false">
         <img class="asset asset-pro" width="188" height="264" alt="" draggable="false">
         <button class="drag-handle" aria-label="拖动 SourcePin"></button>
-        <button class="screen" type="button" data-action="preview-panel" aria-label="预览捕获内容" title="双击或按 Enter 预览"><span class="screen-count"></span><span class="screen-status"></span><span class="screen-match"></span><span class="screen-summary"></span></button>
+        <button class="screen" type="button" data-action="preview-panel" aria-label="预览捕获内容" title="单击或按 Enter 预览"><span class="screen-count"></span><span class="screen-status"></span><span class="screen-match"></span><span class="screen-summary"></span></button>
         <button class="hotspot copy" data-action="copy" aria-label="复制 Markdown"></button>
         <button class="hotspot settings-button" data-action="settings-panel" aria-label="打开设置"></button>
         <button class="hotspot capture" data-action="capture-panel" aria-label="打开画面采集"></button>
         <button class="hotspot download" data-action="download" aria-label="下载 Markdown"></button>
-        <button class="hotspot gear" data-action="mode-picker" aria-label="选择 Lite 或 Pro 模式"></button>
+        <button class="hotspot gear" data-action="mode-picker" aria-label="选择 Lite 或 Pro 模式" aria-expanded="false" aria-controls="sourcepin-mode-picker"></button>
         <button class="inspector-close" data-action="close" aria-label="关闭 SourcePin">×</button>
-        <div class="mode-picker"><button class="mode-switch" data-action="mode" role="switch" aria-label="切换 Lite 或 Pro 模式"></button><span class="mode-label"></span></div>
+        <div class="mode-picker" id="sourcepin-mode-picker" hidden><button class="mode-switch" data-action="mode" role="switch" aria-label="切换 Lite 或 Pro 模式"></button><span class="mode-label"></span></div>
       </div><div class="toast" role="status" aria-live="polite"></div>
     </div>`;
   document.documentElement.append(host);
@@ -110,6 +110,16 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   const placePanels = () => {
     const hostRect = host.getBoundingClientRect();
     panels().filter(panel => !panel.hidden).forEach(panel => {
+      if (panel.dataset.panel === 'preview') {
+        // Reserve room above the console. Short windows keep both surfaces
+        // visible by reducing only the scrollable preview's height.
+        const minimumTop = Math.min(264 + 8 + 8 - 16, Math.max(0, innerHeight - stage.offsetHeight));
+        if (hostRect.top < minimumTop) Object.assign(host.style, {top:`${minimumTop}px`,bottom:'auto'});
+        const body = robot.getBoundingClientRect();
+        const height = Math.max(0, Math.min(264, body.top - 16));
+        Object.assign(panel.style, {width:'188px',height:`${height}px`,left:`${Math.max(8, Math.min(innerWidth - 196, body.left))}px`,top:`${body.top - height - 8}px`,right:'auto',bottom:'auto'});
+        return;
+      }
       const width = Math.min(340, innerWidth - 16);
       panel.style.width = `${width}px`;
       const height = panel.getBoundingClientRect().height;
@@ -130,7 +140,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     const wasOpen = !target.hidden;
     panels().forEach(panel => { panel.hidden = true; });
     target.hidden = wasOpen;
-    if (!target.hidden) requestAnimationFrame(placePanels);
+    if (!target.hidden) placePanels();
   };
   const changedSettings = () => {
     const settings: Settings = {
@@ -152,7 +162,12 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     else if (action === 'download') actions.download();
     else if (action === 'repick') actions.repick();
     else if (action === 'close') actions.close();
-    else if (action === 'mode-picker') q<HTMLElement>(root, '.mode-switch').focus();
+    else if (action === 'mode-picker') {
+      const picker=q<HTMLElement>(root, '.mode-picker');
+      picker.hidden=!picker.hidden;
+      button.setAttribute('aria-expanded',String(!picker.hidden));
+      if(!picker.hidden)q<HTMLElement>(root, '.mode-switch').focus();
+    }
     else if (action === 'mode') { actions.settings({ ...state.settings, mode: state.mode === 'lite' ? 'pro' : 'lite' }); }
     else if (action === 'settings-panel') openPanel('settings');
     else if (action === 'capture-panel') openPanel('capture');
@@ -275,12 +290,13 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     },
     selections(rects: Rect[]) {
       const layer = q<HTMLElement>(root, '.selections');
-      layer.replaceChildren(...rects.map(rect => {
-        const node = document.createElement('div');
-        node.className = 'selection';
-        Object.assign(node.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
-        return node;
-      }));
+      while(layer.children.length>rects.length)layer.lastElementChild!.remove();
+      rects.forEach((rect,index)=>{
+        let node=layer.children[index] as HTMLElement | undefined;
+        if(!node){node=document.createElement('div');node.className='selection';layer.append(node);}
+        const values={left:`${rect.x}px`,top:`${rect.y}px`,width:`${rect.width}px`,height:`${rect.height}px`};
+        for(const key of ['left','top','width','height'] as const)if(node.style[key]!==values[key])node.style[key]=values[key];
+      });
     },
     hide(value: boolean) { hidden = value; host.style.display = value ? 'none' : ''; },
   };

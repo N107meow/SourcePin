@@ -70,6 +70,7 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
 
   async function captureSelected(keepViewports=false) {
     escapeArmed=false;
+    trackGeometry();
     operation?.abort();const current=new AbortController();operation=current;
     const targets=[...selected];busy=true;copied=false;savedFilename=undefined;status='正在捕获组件上下文…';revision++;
     if(!keepViewports)viewports=[];
@@ -134,7 +135,19 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     if(!picking)return;
     const target=elementFrom(event);if(!target){hover=null;ui.highlight(null);return;}
     hover=target;
-    if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawHover();});
+    trackGeometry();
+  }
+  // Keep viewport overlays aligned with scrolling, animated layout and nested
+  // scrollers (including scroll events that do not escape a shadow root).
+  // Only geometry runs per paint; capture and Markdown stay event-driven.
+  function trackGeometry(){
+    if(raf || !alive)return;
+    raf=requestAnimationFrame(()=>{
+      raf=0;if(!alive)return;
+      drawHover();
+      ui.selections(selected.filter(el=>el.isConnected).map(topRect));
+      if(selected.some(el=>el.isConnected) || (picking && hover?.isConnected))trackGeometry();
+    });
   }
   function drawHover(){
       if(!picking || !hover?.isConnected || !alive){ui.highlight(null);return;}
@@ -190,8 +203,6 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   scanFrames(document);
   const timer=window.setInterval(()=>{
     if(!alive)return;
-    drawHover();
-    ui.selections(selected.filter(el=>el.isConnected).map(topRect));
     for(const [doc,cleanup] of documents){if(doc!==document && !doc.defaultView?.frameElement?.isConnected){cleanup();documents.delete(doc);}}
     scanFrames(document);
   },250);

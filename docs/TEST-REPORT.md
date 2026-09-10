@@ -1,10 +1,10 @@
 # SourcePin 0.1.0 测试报告
 
-验证日期：2026-09-10（Asia/Shanghai）。最终端到端证据时间：2026-09-09T23:14:07.482Z。
+验证日期：2026-09-10（Asia/Shanghai）。最终端到端证据时间：2026-09-10T02:46:36.841Z。
 
 ## 结果
 
-- `npm run check`：通过。TypeScript 类型检查无错误，55 项测试全部通过、0 失败、0 跳过，随后生成生产包。
+- `npm run check`：通过。TypeScript 类型检查无错误，57 项测试全部通过、0 失败、0 跳过，随后生成生产包。
 - `npm run test:e2e`：12 项端到端流程全部通过，验收页没有未捕获的 JavaScript 错误。
 - `unzip -t dist/sourcepin-0.1.0-chrome.zip`：包内 4 个文件完整性检查通过。
 - 独立代码审查已复核关闭导出骨架 CSS 边界、初始 hover 误判、无关指针释放污染录制的 3 项发现。
@@ -15,14 +15,14 @@ macOS arm64，Node v24.16.0，Playwright 1.62.1，Chromium 151.0.7922.34。使�
 
 端到端测试实际加载 `dist/extension`，通过 Chromium 测试 CDP 的 `Extensions.triggerAction` 触发扩展 action，走 activeTab、MV3 service worker、注入与消息传递链路。测试用的扩展调试启动参数不进入产品 manifest。复制通过真实键盘事件和系统剪贴板 API，下载通过浏览器 download 事件取得真实文件；书签测试点击打包后的 javascript 链接。
 
-## 55 项回归测试
+## 57 项回归测试
 
 | 范围 | 数量 | 主要检查 |
 | --- | ---: | --- |
 | capture / locators | 17 | 唯一定位、重排、重复 ID、引号、同源 frame/open shadow、表单/属性/URL 过滤、节点/深度/文本预算、CSSOM、伪元素、动画、取消 |
 | recorder / Markdown | 14 | 18 节 Pro 输出、Lite 输出、15 KB UTF-8 摘要、代码围栏、真实 hover/focus/按下/释放、pointerId、无关事件排除、超时、卸载 |
-| UI | 10 | 原 SVG 热区、Lite/Pro、复制状态、预览、语言与设置、首次引导、键盘、320×420/900×700 四角拖动与面板边界 |
-| controller | 6 | 点击不透传、只在命令时复制、原生编辑复制、取消与晚到结果、多选总预算 600、Shift 复制、高亮清理 |
+| UI | 11 | 原 SVG 热区、Lite/Pro、复制状态、预览、语言与设置、首次引导、键盘、320×420/900×700 四角拖动与面板边界 |
+| controller | 7 | 点击不透传、只在命令时复制、原生编辑复制、取消与晚到结果、多选总预算 600、Shift 复制、高亮清理 |
 | download / lifecycle / reference | 3 | 真正下载、快速重复唤起、运行导出骨架时 CSS 不能突破 style 标签 |
 | installation | 1 | Pages 子路径、原生拖拽源数据、另一站点独立唤起与复制 |
 | platform / background | 4 | 设置限值、消息来源、可选权限拒绝、saveAs 取消与错误反馈 |
@@ -62,24 +62,35 @@ macOS arm64，Node v24.16.0，Playwright 1.62.1，Chromium 151.0.7922.34。使�
 
 ## 安装包
 
-`dist/sourcepin-0.1.0-chrome.zip`，24,893 bytes。
+`dist/sourcepin-0.1.0-chrome.zip`，25,213 bytes。
 
-SHA-256：`d09f0b1b838c9a5b90261534b572f738571f5b1955dc93e75629ad25f21d2aa8`。
+SHA-256：`3bcb3aebe430a6b7922a81377388dd21414d43e1867ff0228257d0241d4cacb2`。
 
 人工验收入口及步骤见 [ACCEPTANCE.md](ACCEPTANCE.md)，安装与启动见 [README](../README.md)。
 
 
 ## 用户视觉反馈修订（2026-09-10）
 
-最新 `npm run check` 为 55/55，通过类型检查与构建；12 项端到端继续通过。
+最新 `npm run check` 为 57/57，通过类型检查与构建；12 项端到端继续通过。
 
 - 机身投影移除透明矩形影响，Lite/Pro SVG 使用独立滤镜标识；截图像素验证两种主题的阴影颜色一致。
 - 原始矢量图标独立按压并回弹，减少动态效果设置下停用。
-- 常驻底部 Switch：44×22，拇指15，拇指边框2，标签9 px。轨道用2.5px inset描边绘制，避免 Chromium 对小数 border 舍入。
+- 齿轮单击显隐的底部 Switch：44×22，拇指15，拇指边框2，标签9 px。轨道用2.5px inset描边绘制，避免 Chromium 对小数 border 舍入。
 - 第一次 Esc 取消选择、清空捕获、停止录制、收起面板；第二次退出，repeat忽略，再选择重置顺序。
 - 安装页相对路径兼容 GitHub Pages 仓库子路径，书签代码内联；测试真实 link dragstart 携带完整 javascript URL，并在另一站点重放书签、选中和复制。
 - 没有自动操作用户 Chrome 的书签栏或声称已保存书签；页面内部 drop 对 javascript URL 的过滤不是书签栏行为。正式公开发布后仍需按发布说明验收浏览器书签栏。
 
 视觉证据：[Lite](../artifacts/feedback-lite.png)、[Pro](../artifacts/feedback-pro.png)、[小视口](../artifacts/feedback-mobile.png)、[安装页](../artifacts/feedback-install.png)。
 
-独立只读审查确认五项需求覆盖、未发现阻断问题；主 Agent 完成最终测试及像素验证。
+前一轮视觉修订经过独立只读审查。本轮追加审查因 Agent 额度限制未完成，主 Agent 自行复核改动并完成以下验证。
+
+
+## 滚动、Switch 与预览修订
+
+- 修复前回归测试复现：逐帧滚动 9px 时，选中框误差从 9px 累积到 54px。修复后页面、嵌套容器、开放 Shadow DOM 和同源 iframe 的连续六帧检查均在 0.5px 容差内，并保持同一边框节点。
+- Switch 默认隐藏；蓝色设置按钮不改变显隐，齿轮单击显示，再单击隐藏。原 44×22、拇指15、轨道描边2.5、拇指边框2、标签9 px 保持。
+- 1280×900 实测：预览 `(1060,280,188,264)`，机身 `(1060,552,188,264)`，上方间距 8px；预览内容高度 3399px、可见区域 198px，内部滚动到 150px 验证成功。
+- 320×420 小视口截图确认预览位于机身上方并保持可见，内容区随剩余高度缩短。全套检查 57/57、真实扩展与书签流程 12/12，两个分发 ZIP 完整性检查通过。
+- README 补充五项设置说明；安装页及内联书签已重新构建。旧书签需要从新版安装页重新拖入替换。
+
+最新视觉证据：[预览位于机身上方](../artifacts/feedback-preview-above.png)、[齿轮显示 Switch](../artifacts/feedback-preview-switch.png)、[矮视口](../artifacts/feedback-preview-small.png)。当前包校验值见 `dist/SHA256SUMS`。

@@ -184,6 +184,7 @@ test('update, overlays, containment, viewport constraints and lifecycle are stat
 
 test('reference switch stays below the robot at exact track, thumb and label sizes',async()=>{
   const page=await fixture();
+  await page.locator('.gear').click();
   const result=await page.locator('.mode-switch').evaluate(el=>{
     const s=getComputedStyle(el),thumb=getComputedStyle(el,'::after');const root=el.getRootNode();
     const label=root.querySelector('.mode-label');const art=root.querySelector('.asset');
@@ -229,4 +230,24 @@ test('Lite and Pro use the same single-pass shadow opacity',async()=>{
   await page.evaluate(()=>ui.update({mode:'pro',status:'',count:0,summary:'',copied:false,busy:false,recording:false,matched:false,markdown:'',settings:{mode:'pro',language:'zh',maxNodes:300,maxDepth:6,onboardingDone:true}}));
   const pro=await pixel();assert.deepEqual(pro,lite);assert.ok(lite[0]>170&&lite[0]<220);
   await page.close();
+});
+
+test('gear alone toggles the mode picker and preview matches the console above it',async()=>{
+  const page=await fixture();
+  assert.equal(await page.locator('.mode-picker').isVisible(),false);
+  await page.locator('.settings-button').click();
+  assert.equal(await page.locator('.mode-picker').isVisible(),false);
+  await page.locator('.gear').click();assert.equal(await page.locator('.mode-picker').isVisible(),true);
+  await page.locator('.settings-button').click();assert.equal(await page.locator('.mode-picker').isVisible(),true);
+  await page.locator('.gear').click();assert.equal(await page.locator('.mode-picker').isVisible(),false);
+  await page.locator('.screen').click();
+  const panel=page.locator('[data-panel="preview"]');await expectVisible(panel);
+  const bounds=await panel.boundingBox(),asset=await page.locator('.asset-lite').boundingBox();
+  assert.equal(bounds.width,asset.width);assert.equal(bounds.height,asset.height);
+  assert.equal(bounds.x,asset.x);assert.equal(bounds.y+bounds.height+8,asset.y);
+  await page.setViewportSize({width:320,height:420});
+  await page.waitForTimeout(40);
+  const small=await panel.boundingBox(),smallAsset=await page.locator('.asset-lite').boundingBox();
+  assert.ok(small.x>=8 && small.y>=8 && small.x+small.width<=312);
+  assert.ok(small.y+small.height+8<=smallAsset.y+.5);
 });

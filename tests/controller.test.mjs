@@ -107,3 +107,40 @@ test('Escape cancels selection and panels, ignores repeat, and rearms after sele
     await page.keyboard.press('Escape');assert.equal(await page.locator('[data-sourcepin-root]').count(),0);
   }finally{await browser.close();}
 });
+
+test('selection follows page, nested, shadow and frame scrolling every paint without replacing outlines',async()=>{
+  const browser=await chromium.launch({headless:true});
+  try{
+    const page=await browser.newPage();
+    await page.setContent('<style>body{height:2400px}#nested{height:180px;overflow:auto}button{margin-top:100px}</style><div id="nested"><button id="target">Scroll target</button><div style="height:1000px"></div></div><div id="shadow"></div><iframe id="frame" srcdoc="<button id=framed style=margin-top:100px>Frame target</button><div style=height:2000px></div>"></iframe>');
+    await page.evaluate(()=>{document.querySelector('#shadow').attachShadow({mode:'open'}).innerHTML='<div id="scroller" style="height:140px;overflow:auto"><button id="shadowed">Shadow target</button><div style="height:1000px"></div></div>';});
+    await page.addScriptTag({content:await controllerFixture('lite')});await page.evaluate(()=>window.startTest());
+    for(const kind of ['page','nested','shadow','frame']){
+      await page.evaluate(()=>scrollTo(0,0));
+      const target=kind==='frame'?page.frameLocator('#frame').locator('#framed'):page.locator(kind==='shadow'?'#shadowed':'#target');
+      await target.click();await settled(page);
+      const errors=await page.evaluate(async kind=>{
+        const root=document.querySelector('sourcepin-inspector').shadowRoot;
+        const node=root.querySelector('.selection');
+        const frame=document.querySelector('#frame');
+        const target=kind==='frame'?frame.contentDocument.querySelector('#framed'):kind==='shadow'?document.querySelector('#shadow').shadowRoot.querySelector('#shadowed'):document.querySelector('#target');
+        const errors=[];
+        for(let i=0;i<6;i++){
+          if(kind==='page')scrollBy(0,9);
+          else if(kind==='nested')document.querySelector('#nested').scrollTop+=9;
+          else if(kind==='shadow')document.querySelector('#shadow').shadowRoot.querySelector('#scroller').scrollTop+=9;
+          else frame.contentWindow.scrollBy(0,9);
+          await new Promise(resolve=>requestAnimationFrame(resolve));
+          const actual=root.querySelector('.selection'), rect=target.getBoundingClientRect(),outline=actual.getBoundingClientRect();
+          const offset=kind==='frame'?frame.getBoundingClientRect().top+frame.clientTop:0;
+          if(Math.abs(outline.top-rect.top-offset)>.5)errors.push({frame:i,delta:outline.top-rect.top-offset});
+          if(actual!==node)errors.push('outline replaced');
+        }
+        return errors;
+      },kind);
+      assert.deepEqual(errors,[],kind);
+    }
+    await page.keyboard.press('Escape');assert.equal(await page.locator('.selection').count(),0);
+    await page.keyboard.press('Escape');assert.equal(await page.locator('sourcepin-inspector').count(),0);
+  }finally{await browser.close();}
+});

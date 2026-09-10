@@ -54,7 +54,7 @@ try{
   await page.keyboard.press('Meta+c');
   const pro=await page.evaluate(()=>navigator.clipboard.readText());assert.match(pro,/workspace-card/);
   results.push('Pro passive recording preserves real page interaction');
-  await root.locator('.screen').dblclick();
+  await root.locator('.screen').click();
   const full=await root.locator('.preview').textContent();await writeFile('artifacts/example-pro.md',full);
   assert.match(full,/State Machine/);assert.match(full,/aria-expanded|class/);
   assert.doesNotMatch(full,/SOURCEPIN_TEST_PASSWORD|SOURCEPIN_TEST_TOKEN/);
@@ -106,7 +106,7 @@ try{
 
   await page.getByTestId('privacy-target').click();
   await page.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
-  await root.locator('.screen').dblclick();
+  await root.locator('.screen').click();
   assert.doesNotMatch(await root.locator('.preview').textContent(),/SOURCEPIN_TEST_TOKEN|SOURCEPIN_TEST_PASSWORD/);
   await page.keyboard.press('Escape');
   results.push('Full export excludes seeded sensitive attributes and form values');
