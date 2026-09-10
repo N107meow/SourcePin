@@ -6,7 +6,7 @@ const BUSINESS_ATTRIBUTES = ['data-testid', 'data-test', 'data-qa', 'data-cy', '
 const DYNAMIC = /(?:^|[-_])(?:\d{4,}|[a-f0-9]{8,}|[a-z0-9]{12,})(?:$|[-_])/i;
 
 function identityAttributes(element: Element): Record<string, string> {
-  return Object.fromEntries(Object.entries(safeAttributes(element)).filter(([name]) =>
+  return Object.fromEntries(Object.entries(safeAttributes(element).attributes).filter(([name]) =>
     name === 'id' || name === 'class' || name === 'name' || name.startsWith('data-'),
   ));
 }
@@ -85,7 +85,7 @@ export function validateLocators(element: Element, locators: Locator[]): Locator
 
 export function generateLocators(element: Element): Locator[] {
   const candidates: Locator[] = [];
-  const attributes = safeAttributes(element);
+  const attributes = safeAttributes(element).attributes;
   const identities = identityAttributes(element);
   const businessNames = [...new Set([...BUSINESS_ATTRIBUTES, ...Object.keys(identities).filter((name) => name.startsWith('data-'))])];
   for (const name of businessNames) {

@@ -1,4 +1,5 @@
 import type { InspectorUI, Rect, Settings, UIActions, UIState } from '../types';
+import { RIGHTS_NOTICE } from '../core/provenance';
 import { INSPECTOR_CSS } from './styles';
 
 const q = <T extends Element>(root: ShadowRoot, selector: string): T => root.querySelector(selector) as T;
@@ -11,6 +12,11 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   root.innerHTML = `<style>${INSPECTOR_CSS}</style>
     <div class="overlay-layer"><div class="highlight" hidden><span class="highlight-label"></span></div><div class="selections"></div></div>
     <div class="stage">
+      <section class="panel" data-panel="review" role="dialog" aria-label="导出前确认" hidden>
+        <div class="panel-head"><span class="review-title">导出前确认</span><button class="panel-close" data-action="export-cancel" aria-label="取消导出"></button></div>
+        <p class="review-counts"></p><p class="review-privacy"></p><p class="review-flow"></p><p class="review-images"></p><p class="review-rights"></p>
+        <div class="panel-actions"><button class="panel-action" data-action="export-confirm">继续导出</button><button class="panel-action" data-action="export-cancel">取消</button></div>
+      </section>
       <section class="panel" data-panel="settings" aria-label="设置" hidden>
         <div class="panel-head"><span data-text="settings">设置</span><button class="panel-close" data-action="panel-close" aria-label="关闭设置"></button></div>
         <label class="field"><span data-text="language">输出语言</span><select name="language"><option value="zh">中文</option><option value="en">English</option></select></label>
@@ -130,13 +136,17 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
       Object.assign(panel.style, { left: `${left}px`, top: `${top}px`, right: 'auto', bottom: 'auto' });
     });
   };
+  let finishReview: ((accepted:boolean)=>void) | undefined;
+  const settleReview=(accepted=false)=>{const resolve=finishReview;finishReview=undefined;q<HTMLElement>(root,'[data-panel="review"]').hidden=true;resolve?.(accepted);};
   const closePanel = (): boolean => {
     const open = panels().find(panel => !panel.hidden);
     if (!open) return false;
+    if(open.dataset.panel==='review')settleReview();
     open.hidden = true;
     return true;
   };
   const openPanel = (name: string) => {
+    if(finishReview)settleReview();
     const target = q<HTMLElement>(root, `[data-panel="${name}"]`);
     const wasOpen = !target.hidden;
     panels().forEach(panel => { panel.hidden = true; });
@@ -160,7 +170,9 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     if (!button) return;
     const action = button.dataset.action;
     animateButton(button,false);
-    if (action === 'copy') actions.copy();
+    if (action === 'export-confirm') settleReview(true);
+    else if (action === 'export-cancel') settleReview();
+    else if (action === 'copy') actions.copy();
     else if (action === 'download') actions.download();
     else if (action === 'repick') actions.repick();
     else if (action === 'close') actions.close();
@@ -269,6 +281,20 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   update(initial);
   const api: InspectorUI = {
     host,
+    review(details) {
+      openPanel('review');
+      const en=state.settings.language==='en';
+      q<HTMLElement>(root,'.review-title').textContent=en?'Review before export':details.action+' · 导出前确认';
+      q<HTMLElement>(root,'.review-counts').textContent=`${en?'Snapshot DOM matches (unique)':'已有 DOM 快照疑似信息（去重）'}: ${en?'Email':'邮箱'} ${details.counts.email} · ${en?'Phone':'手机号'} ${details.counts.phone} · ${en?'ID':'身份证'} ${details.counts.identity} · ${en?'Address':'地址'} ${details.counts.address}`;
+      q<HTMLElement>(root,'.review-privacy').textContent=en?'Local heuristics may miss or misclassify data. DOM may contain personal information; screenshot pixels may contain text. Screenshots are not scanned by OCR.':'本地模式检测可能误报或漏报。DOM 可能含个人信息；截图像素可能含文字，截图未做 OCR 检测。请检查内容后决定。';
+      q<HTMLElement>(root,'.review-flow').textContent=en?'Pasting into an LLM sends this content to that third party for processing. SourcePin does not upload captures.':'粘贴给 LLM 即把内容交给第三方处理。SourcePin 本身不会上传采集内容。';
+      q<HTMLElement>(root,'.review-images').textContent=details.downloadsImages?(en?'Continue reads referenced images without credentials and embeds them in the ZIP; inaccessible images become placeholders.':'继续后将无凭据读取当前快照引用的图片并内联进 ZIP；无法读取的图片会用占位图替代。'):'';
+      q<HTMLElement>(root,'.review-rights').textContent=RIGHTS_NOTICE;
+      q<HTMLElement>(root,'[data-action="export-confirm"]').textContent=en?'Continue export':'继续导出';
+      q<HTMLElement>(root,'[data-action="export-cancel"].panel-action').textContent=en?'Cancel':'取消';
+      placePanels();q<HTMLElement>(root,'[data-action="export-confirm"]').focus();
+      return new Promise(resolve=>{finishReview=resolve;});
+    },
     update,
     toast(message) {
       toastNode.textContent = message;
@@ -279,6 +305,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     contains(event) { return event.composedPath().includes(host); },
     closePanel,
     destroy() {
+      settleReview();
       if (toastTimer) clearTimeout(toastTimer);
       removeEventListener('resize', constrain);
       host.remove();

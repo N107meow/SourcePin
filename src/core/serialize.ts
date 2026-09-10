@@ -63,3 +63,14 @@ export function serialize(root: Element,snapshots: Map<Element,NodeSnapshot>,max
   }).join('');
   return {html,truncatedText,skeletonBytes};
 }
+
+/** Share declarations without changing per-node selector specificity. */
+export function groupedCss(nodes:NodeSnapshot[]):string {
+  const groups=new Map<string,string[]>();
+  for(const node of nodes)for(const [suffix,styles] of [['',node.styles],...Object.entries(node.pseudo)] as Array<[string,Record<string,string>]>){
+    if(!Object.keys(styles).length)continue;
+    const declaration=Object.entries(styles).map(([key,value])=>`${key}:${value};`).join('');
+    const selectors=groups.get(declaration)??[];selectors.push(`.${node.key}${suffix}`);groups.set(declaration,selectors);
+  }
+  return [...groups].map(([declaration,selectors])=>`${selectors.join(',')}{${declaration}}`).join('\n');
+}

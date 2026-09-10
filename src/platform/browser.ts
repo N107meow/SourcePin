@@ -18,6 +18,6 @@ export function createBrowserPlatform(kind: 'bookmarklet' | 'demo'): Platform {
       if (!navigator.clipboard?.writeText) throw new Error('当前页面不支持剪贴板写入，请使用 HTTPS 页面或下载 Markdown。');
       await navigator.clipboard.writeText(text);
     },
-    async download(text,filename){ saveBlob(new Blob([text],{type:'text/markdown;charset=utf-8'}),filename); return '已发起下载，保存位置由浏览器设置决定'; }
+    async download(text,filename){ saveBlob(text instanceof Blob?text:new Blob([text],{type:'text/markdown;charset=utf-8'}),filename); return '已发起下载，保存位置由浏览器设置决定'; }
   };
 }

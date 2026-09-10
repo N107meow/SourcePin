@@ -1,3 +1,5 @@
+import { createStyleIndex } from './style-index';
+import { TOOL_VERSION, RIGHTS_NOTICE } from './provenance';
 import type { Asset, Capture, CaptureOptions, NodeSnapshot, Rect, Styles } from '../types';
 import { excluded, visibleChildren, hiddenByStyle, parentElementOrHost } from './dom';
 import { generateLocators } from './locators';
@@ -17,7 +19,7 @@ const STYLE_PROPERTIES = [
   'transition','transition-property','transition-duration','transition-delay','transition-timing-function',
 ] as const;
 
-import { serialize, byteLength, markupTags, directTextNodes, contentNodes, nodeCss } from './serialize';
+import { serialize, byteLength, markupTags, directTextNodes, contentNodes, nodeCss, groupedCss } from './serialize';
 function abort(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException('Capture aborted', 'AbortError');
 }
@@ -55,22 +57,24 @@ function pseudoStyles(element: Element): Record<string, Styles> {
 }
 
 function isVisible(element: Element): boolean {
-  for (let current: Element | null = element; current; current = current.parentElement) {
+  for (let current: Element | null = element; current; current = parentElementOrHost(current)) {
     const styles = current.ownerDocument.defaultView?.getComputedStyle(current);
-    if (!styles || styles.display === 'none' || styles.visibility === 'hidden' || Number(styles.opacity) === 0) return false;
+    if (!styles || styles.display === 'none' || styles.visibility === 'hidden' || styles.visibility === 'collapse' || (current===element && Number(styles.opacity) === 0)) return false;
   }
   const rect = element.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
 }
 
-function collectCssom(document: Document, snapshots: Map<Element, NodeSnapshot>): { rules: Map<string, string[]>; keyframes: string[]; inaccessible: boolean; limited: boolean } {
+function collectCssom(document: Document, snapshots: Map<Element, NodeSnapshot>): { rules: Map<string, string[]>; keyframes: string[]; inaccessible: boolean; limited: boolean; visited:number; matches:number } {
   const rules = new Map<string, string[]>();
   const keyframes: string[] = [];
   let inaccessible = false;
-  let visited = 0, limited = false;
+  let visited = 0, limited = false, matches=0;
+  const candidates=createStyleIndex([...snapshots.keys()]);
   const visit = (list: CSSRuleList) => {
     for (const rule of [...list]) {
-      if (visited++ >= 2000) {limited=true;return;}
+      if (visited >= 2000) {limited=true;return;}
+      visited++;
       const nested = (rule as CSSGroupingRule).cssRules;
       if (rule.type === 7) {
         if(rule.cssText.length>8000)limited=true;
@@ -79,8 +83,10 @@ function collectCssom(document: Document, snapshots: Map<Element, NodeSnapshot>)
         if(serialized.length<=8000)keyframes.push(serialized);
       } else if (rule.type === 1) {
         const styleRule = rule as CSSStyleRule;
-        for (const [element, snapshot] of snapshots) {
+        for (const element of candidates(styleRule.selectorText)) {
+          const snapshot=snapshots.get(element)!;
           try {
+            matches++;
             if (element.matches(styleRule.selectorText)) {
               const entries = rules.get(snapshot.key) ?? [];
               if (entries.length >= 20)limited=true;
@@ -96,7 +102,7 @@ function collectCssom(document: Document, snapshots: Map<Element, NodeSnapshot>)
     if (visited >= 2000) {limited=true;break;}
     try { if (sheet.cssRules) visit(sheet.cssRules); } catch { inaccessible = true; }
   }
-  return { rules, keyframes, inaccessible, limited };
+  return { rules, keyframes, inaccessible, limited, visited, matches };
 }
 
 function collectAnimations(root: Element, snapshots: Map<Element, NodeSnapshot>): unknown[] {
@@ -143,7 +149,7 @@ function reachPath(element: Element): string[] {
 }
 
 function safeLabel(element: Element): string {
-  const id = safeAttributes(element).id;
+  const id = safeAttributes(element).attributes.id;
   return element.localName + (id ? `#${id}` : '');
 }
 
@@ -178,10 +184,8 @@ function collectAssets(element: Element, styles: Styles): Asset[] {
 }
 
 function nextFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    if ('requestIdleCallback' in globalThis) (globalThis as typeof globalThis & { requestIdleCallback(cb: () => void, options: {timeout: number}): number }).requestIdleCallback(resolve, { timeout: 16 });
-    else setTimeout(resolve, 0);
-  });
+  const scheduler=(globalThis as typeof globalThis & {scheduler?:{yield():Promise<void>}}).scheduler;
+  return scheduler?.yield ? scheduler.yield() : new Promise(resolve=>setTimeout(resolve,0));
 }
 
 export async function captureElement(element: Element, options: CaptureOptions): Promise<Capture> {
@@ -198,6 +202,10 @@ export async function captureElement(element: Element, options: CaptureOptions):
   let hiddenExcluded=0,hiddenIncluded=0,filtered=0,attributeFiltered=0,depthLimited=false,byteLimited=false;
   let structureBytes=2,styleBytes=0,shadowCount=0,iframeCount=0;
   const signatures=new Set<string>();
+  const stylePool=new Map<string,Styles>();
+  const intern=(styles:Styles)=>{const key=JSON.stringify(styles);const existing=stylePool.get(key);if(existing)return existing;stylePool.set(key,styles);return styles;};
+  let yieldedAt=performance.now(),yields=0;
+  const removedNames=new Map<string,number>();
   const pending: Array<{element:Element;depth:number;hidden:boolean}>= [{element,depth:0,hidden:false}];
   let ancestorHidden=false;
   for(let parent=parentElementOrHost(element);parent;parent=parentElementOrHost(parent))ancestorHidden ||= hiddenByStyle(parent);
@@ -208,7 +216,8 @@ export async function captureElement(element: Element, options: CaptureOptions):
     const hidden=current.hidden || (current.depth===0 && ancestorHidden) || hiddenByStyle(el);
     if(hidden && !options.includeHidden){hiddenExcluded++;continue;}
     if(hidden)hiddenIncluded++;
-    const attributes=safeAttributes(el,document.baseURI);
+    const audit=safeAttributes(el,document.baseURI), attributes=audit.attributes;
+    for(const name of audit.removed)removedNames.set(name,(removedNames.get(name) ?? 0)+1);
     attributeFiltered += [...el.attributes].filter(attr=>!(attr.name in attributes) || attributes[attr.name]!==attr.value).length;
     if(hidden)attributes['data-sourcepin-hidden']='true';
     const key=`sp-${nodes.length}`;
@@ -220,7 +229,7 @@ export async function captureElement(element: Element, options: CaptureOptions):
     if(sampled.size<maxStyleNodes && (kind!=='page' || representative)){
       const styles=sampleStyles(el),pseudo=pseudoStyles(el);
       const cost=byteLength(JSON.stringify({styles,pseudo}))*2;
-      if(styleBytes+cost<=maxBytes/4){snapshot.styles=styles;snapshot.pseudo=pseudo;styleBytes+=cost;}
+      if(styleBytes+cost<=maxBytes/4){snapshot.styles=intern(styles);snapshot.pseudo=Object.fromEntries(Object.entries(pseudo).map(([key,value])=>[key,intern(value)]));styleBytes+=cost;}
     }
     // Reserve HTML skeleton, direct-text markers and per-node CSS before text.
     // JSON nodes + HTML + CSS share this byte ceiling; metadata is separate.
@@ -237,11 +246,11 @@ export async function captureElement(element: Element, options: CaptureOptions):
       if(current.depth<maxDepth)for(let i=children.length-1;i>=0;i--)pending.push({element:children[i],depth:current.depth+1,hidden});
       else if(children.some(child=>!excluded(child)))depthLimited=true;
     }
-    if(nodes.length%100===0)await nextFrame();
+    if(nodes.length%500===0 || performance.now()-yieldedAt>=8){await nextFrame();yieldedAt=performance.now();yields++;}
   }
   abort(options.signal);
-  const cssom=full ? collectCssom(document,sampled) : {rules:new Map<string,string[]>(),keyframes:[],inaccessible:false,limited:false};
-  const baseCss=full?nodes.map(nodeCss).filter(Boolean).join('\n'):'';
+  const cssom=full ? collectCssom(document,sampled) : {rules:new Map<string,string[]>(),keyframes:[],inaccessible:false,limited:false,visited:0,matches:0};
+  const baseCss=full?groupedCss(nodes):'';
   // Source rules are supplementary evidence. Bound them separately so they
   // cannot consume the structure/text allowance or turn sampling quadratic.
   const sourceCss=full?[...cssom.rules.values()].flat().map(rule=>`/* matched CSSOM: ${rule.replaceAll('*/','* /')} */`).join('\n'):'';
@@ -261,6 +270,7 @@ export async function captureElement(element: Element, options: CaptureOptions):
   if(hiddenExcluded)degradations.push(`${hiddenExcluded} hidden subtrees excluded by default; their content was not captured.`);
   if(hiddenIncluded)degradations.push(`${hiddenIncluded} hidden nodes included by explicit opt-in and marked data-sourcepin-hidden.`);
   if(filtered)degradations.push(`${filtered} executable, private or tool subtrees filtered; content not captured.`);
+  if(removedNames.size)degradations.push(`Removed attributes (${[...removedNames.values()].reduce((sum,n)=>sum+n,0)}): ${[...removedNames].sort().map(([name,n])=>`${name}: ${n}`).join(', ')}. Values are not retained in this audit.`);
   if(attributeFiltered)degradations.push(`${attributeFiltered} attributes filtered, normalized or redacted (including form values, event handlers and sensitive URL parameters).`);
   if([...snapshots.keys()].some(el=>el.matches('input,textarea,select,option')))degradations.push('Form values and control text were excluded.');
   if([...snapshots.keys()].some(el=>el.localName==='template'))degradations.push('Template contents retained as inert markup; computed layout is unavailable until instantiated.');
@@ -270,6 +280,10 @@ export async function captureElement(element: Element, options: CaptureOptions):
   if(cssom.limited)degradations.push('CSSOM sampling limit reached (2000 rules, 20 matches per sampled node, 8000 characters per keyframe); remaining source rules omitted.');
   if(full)degradations.push('Animations sampled at most 100 animations and 100 keyframes per animation; unobserved interactions and server behavior remain unknown.');
   if(cssom.inaccessible)degradations.push('One or more stylesheets were inaccessible; scoped CSS uses sampled computed styles for affected rules.');
+  let ancestorOpacityZero=false;
+  for(let parent=parentElementOrHost(element);parent;parent=parentElementOrHost(parent))if(Number(view.getComputedStyle(parent).opacity)===0)ancestorOpacityZero=true;
+  if(ancestorOpacityZero)degradations.push('Ancestor opacity is zero; target visible reports its own opacity and layout, not ancestor animation state.');
+  if(full)degradations.push(`Sampling policy: CSSOM up to 2000 rules, 20 matches per sampled node, 8000 characters per keyframe, 32768 supplementary CSS bytes; visited ${cssom.visited} rules, ${cssom.matches} candidate matches; ${stylePool.size} interned style sets. Yield every 500 nodes or 8 ms via scheduler.yield/setTimeout (${yields} yields).`);
   const siblings=element.parentElement?visibleChildren(element.parentElement):[element];
   const images=[...document.images].filter(img=>!excluded(img) && !img.closest('sourcepin-inspector,[data-sourcepin-root]'));
   const capabilities: Capture['capabilities']={
@@ -286,8 +300,8 @@ export async function captureElement(element: Element, options: CaptureOptions):
   for(const [name,capability] of Object.entries(capabilities))if(capability.status==='absent')degradations.push(`${name}: absent — ${capability.reason}`);
   return {
     id:globalThis.crypto?.randomUUID?.() ?? `capture-${Date.now()}`,timestamp:new Date().toISOString(),mode:options.mode,capabilities,
-    meta:{captureKind:kind,documentHeight:Math.max(document.documentElement.scrollHeight,document.body?.scrollHeight ?? 0),documentElementRect:htmlRect,htmlRect,images:{total:images.length,complete:images.filter(img=>img.complete).length},budgets:{maxNodes,maxDepth,maxBytes,maxStyleNodes},url:safeDocumentUrl(document.URL),title:document.title,viewport:{width:view.innerWidth,height:view.innerHeight},dpr:view.devicePixelRatio,scroll:{x:view.scrollX,y:view.scrollY},reach:reachPath(element)},
-    target:{tag:element.localName,text:safeText(element,120,options.includeHidden),attributes:hiddenExcluded && !nodes.length?{}:safeAttributes(element),ancestors,childIndex:siblings.indexOf(element),typeIndex:siblings.filter(sibling=>sibling.localName===element.localName).indexOf(element),siblingCount:siblings.length,rect,visible:isVisible(element),inViewport:rect.y+rect.height>0 && rect.x+rect.width>0 && rect.y<view.innerHeight && rect.x<view.innerWidth},
+    meta:{toolVersion:TOOL_VERSION,rights:RIGHTS_NOTICE,captureKind:kind,documentHeight:Math.max(document.documentElement.scrollHeight,document.body?.scrollHeight ?? 0),documentElementRect:htmlRect,htmlRect,images:{total:images.length,complete:images.filter(img=>img.complete).length},budgets:{maxNodes,maxDepth,maxBytes,maxStyleNodes},url:safeDocumentUrl(document.URL),title:document.title,viewport:{width:view.innerWidth,height:view.innerHeight},dpr:view.devicePixelRatio,scroll:{x:view.scrollX,y:view.scrollY},reach:reachPath(element)},
+    target:{tag:element.localName,text:safeText(element,120,options.includeHidden),attributes:hiddenExcluded && !nodes.length?{}:safeAttributes(element).attributes,ancestors,childIndex:siblings.indexOf(element),typeIndex:siblings.filter(sibling=>sibling.localName===element.localName).indexOf(element),siblingCount:siblings.length,rect,visible:isVisible(element),ancestorOpacityZero,inViewport:rect.y+rect.height>0 && rect.x+rect.width>0 && rect.y<view.innerHeight && rect.x<view.innerWidth},
     locators:generateLocators(element),nodes,html:markup.html,css,tokens:tokens(nodes),assets,
     animations:full?[...collectAnimations(element,sampled),...cssom.keyframes.map(cssText=>({kind:'css-keyframes',cssText}))]:[],degradations,
   };

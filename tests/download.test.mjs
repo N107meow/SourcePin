@@ -1,3 +1,4 @@
+import { confirmExport } from './helpers/export.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
@@ -14,7 +15,7 @@ test('browser Markdown download passes through active picker without selecting t
     await page.getByTestId('download-target').click();
     await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.screen-status').textContent.includes('回查通过'));
     const received=page.waitForEvent('download',{timeout:3000});
-    await page.locator('[data-sourcepin-root] .download').click();
+    await page.locator('[data-sourcepin-root] .download').click();await confirmExport(page);
     const download=await received;const text=await readFile(await download.path(),'utf8');
     assert.match(text,/download-target/);assert.match(download.suggestedFilename(),/\.md$/);
     assert.match(await page.locator('[data-sourcepin-root] .screen-summary').textContent(),/button/);

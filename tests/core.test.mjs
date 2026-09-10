@@ -137,7 +137,9 @@ test('capture excludes executable content and every SourcePin-owned subtree', as
   const page = await fixture(`<section id="root"><style>.leak{background:url('https://x.test/?token=style-secret')}</style><object data="https://x.test/object"></object><embed src="https://x.test/embed"><svg><foreignObject><div>foreign secret</div></foreignObject></svg><iframe srcdoc="<script>srcdoc secret</script>"></iframe><img srcset="https://x.test/a 1x"><div data-sourcepin-root><p>owned secret</p></div><div data-sourcepin-ui>ui secret</div><sourcepin-inspector>inspector secret</sourcepin-inspector><button onfocus="steal()" style="color:red"><input value="input secret">Visible</button></section>`);
   try {
     const capture = await page.evaluate(() => SourcePinCore.captureElement(document.querySelector('#root'), { mode: 'pro' }));
-    assert.doesNotMatch(JSON.stringify(capture), /style-secret|foreign secret|srcdoc secret|owned secret|ui secret|inspector secret|input secret|onfocus|srcdoc|<style|<object|<embed|foreignObject/i);
+    assert.doesNotMatch(JSON.stringify(capture), /style-secret|foreign secret|srcdoc secret|owned secret|ui secret|inspector secret|input secret|<style|<object|<embed|foreignObject/i);
+    assert.doesNotMatch(capture.html, /onfocus|srcdoc/i);
+    assert.ok(capture.degradations.some(note=>note.includes('onfocus: 1') && note.includes('srcdoc: 1')));
     assert.match(capture.html, />Visible<\/button>/);
   } finally { await page.close(); }
 });
@@ -255,7 +257,7 @@ test('ordinary card identities stay usable while credential-like values are omit
 test('inline positioning and responsive images survive privacy sanitization',async()=>{
   const page=await fixture(`<div id="fill" style="position:absolute;height:100%;width:100%;background:url('/a?token=css-private');--api-key:super-private"></div><img src="/fallback" srcset="/small?token=image-private 1x, /large?size=2 2x" sizes="100vw">`);
   try{
-    const attrs=await page.evaluate(()=>[SourcePinCore.safeAttributes(document.querySelector('#fill')),SourcePinCore.safeAttributes(document.querySelector('img'))]);
+    const attrs=await page.evaluate(()=>[SourcePinCore.safeAttributes(document.querySelector('#fill')).attributes,SourcePinCore.safeAttributes(document.querySelector('img')).attributes]);
     assert.match(attrs[0].style,/position:\s*absolute/);assert.match(attrs[0].style,/height:\s*100%/);
     assert.match(attrs[1].srcset,/1x.*2x/);assert.equal(attrs[1].sizes,'100vw');
     assert.doesNotMatch(JSON.stringify(attrs),/css-private|image-private|super-private|--api-key/);
@@ -349,4 +351,24 @@ test('template URLs and CSSOM declarations cannot bypass privacy filtering',asyn
     assert.doesNotMatch(JSON.stringify(capture),/secret-token-identity|CSS_CREDENTIAL_PRIVATE|TEMPLATE_URL_PRIVATE|TEMPLATE_STYLE_PRIVATE/);
     assert.match(capture.html,/position:|<template/);assert.match(capture.html,/token=%5Bredacted%5D/);
   }finally{await page.close();}
+});
+
+test('attribute audit returns removed names without retaining sensitive values and records provenance',async()=>{
+  const page=await fixture('<button onclick="bad()" data-token="AUDIT_SECRET" value="PRIVATE_VALUE" title="Public">Text</button>');
+  try{
+    const result=await page.evaluate(async()=>({audit:SourcePinCore.safeAttributes(document.querySelector('button')),capture:await SourcePinCore.captureElement(document.querySelector('button'),{mode:'pro'})}));
+    assert.deepEqual(result.audit.attributes,{title:'Public'});
+    assert.deepEqual(result.audit.removed.sort(),['data-token','onclick','value']);
+    assert.doesNotMatch(JSON.stringify(result),/AUDIT_SECRET|PRIVATE_VALUE/);
+    assert.match(result.capture.degradations.join('\n'),/data-token.*1/);
+    assert.equal(result.capture.meta.toolVersion,'0.1.0');assert.match(result.capture.meta.rights,/不授予任何使用权/);
+  }finally{await page.close();}
+});
+
+test('ancestor opacity is annotated separately and sampled styles are interned without expanding CSSOM work',async()=>{
+ const page=await fixture('<style>'+Array.from({length:1500},(_,i)=>`.unused-${i}{color:red}`).join('')+'</style><main style="opacity:0"><span class="same">Same</span><span class="same">Same</span></main>');
+ try{
+ const result=await page.evaluate(async()=>{const target=document.querySelector('main span');const capture=await SourcePinCore.captureElement(document.querySelector('main'),{mode:'pro'});const child=await SourcePinCore.captureElement(target,{mode:'pro'});return {child,capture,shared:capture.nodes[1].styles===capture.nodes[2].styles};});
+ assert.equal(result.child.target.visible,true);assert.equal(result.child.target.ancestorOpacityZero,true);assert.equal(result.capture.target.visible,false);assert.equal(result.shared,true);assert.match(result.capture.css,/\.sp-1,\.sp-2\{/);assert.match(result.capture.degradations.join('\n'),/visited 1500 rules, 0 candidate matches/);assert.match(result.capture.degradations.join('\n'),/500 nodes or 8 ms/);
+ }finally{await page.close();}
 });

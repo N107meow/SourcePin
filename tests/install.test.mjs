@@ -1,3 +1,4 @@
+import { confirmExport } from './helpers/export.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -37,7 +38,7 @@ test('Pages subpath installation exposes a self-contained bookmark that works on
     await page.locator('[data-sourcepin-root]').waitFor();
     await page.locator('[data-action="onboarding-done"]').click();await page.getByTestId('target').click();
     await page.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
-    await page.keyboard.press('Control+c');await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.copy').dataset.copied==='true');
+    await page.keyboard.press('Control+c');await confirmExport(page);await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.copy').dataset.copied==='true');
     assert.match(await page.evaluate(()=>navigator.clipboard.readText()),/Target site/);
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}

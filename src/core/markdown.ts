@@ -1,7 +1,10 @@
+import { TOOL_VERSION, RIGHTS_NOTICE } from './provenance';
 import type { Capture, Capabilities, Language, Recording } from '../types.js';
 
 export interface MarkdownOptions {
   summary?: boolean;
+  packageFiles?: string[];
+  maxBytes?: number;
   language?: Language;
   recording?: Recording;
   recordingCaptureId?: string;
@@ -46,12 +49,12 @@ function renderLiteSection(name: typeof LITE_SECTION_NAMES[number], captures: Ca
   const unavailable = language === 'zh' ? '未采集或不可得。' : 'Not captured or unavailable.';
   const values = captures.map((capture) => {
     switch (name) {
-      case 'Meta': return { id: capture.id, timestamp: capture.timestamp, mode: capture.mode, ...capture.meta };
+      case 'Meta': return { id: capture.id, timestamp: capture.timestamp, mode: capture.mode, ...capture.meta,toolVersion:capture.meta.toolVersion ?? TOOL_VERSION,rights:RIGHTS_NOTICE };
       case 'Target': return capture.target;
       case 'Locators': return capture.locators;
       case 'Reach Path': return capture.meta.reach;
       case 'Context': return { ancestors: capture.target.ancestors, text: capture.target.text, attributes: capture.target.attributes };
-      case 'Geometry': return { rect: capture.target.rect, visible: capture.target.visible, inViewport: capture.target.inViewport };
+      case 'Geometry': return { rect: capture.target.rect, visible: capture.target.visible, ancestorOpacityZero:capture.target.ancestorOpacityZero, inViewport: capture.target.inViewport };
       case 'Framework': return capture.framework ?? unavailable;
       case 'Degradations': return capture.degradations.length ? capture.degradations : [unavailable];
     }
@@ -92,7 +95,7 @@ function behaviorContract(recording: Recording | undefined, language: Language):
   return language === 'zh' ? `以下合同仅来自本轮实际观测：\n\n${observed}\n\n${unknown}` : `This contract contains only behavior observed in this recording:\n\n${observed}\n\n${unknown}`;
 }
 
-function renderSection(name: typeof SECTION_NAMES[number], captures: Capture[], recording: Recording | undefined, language: Language): string {
+function renderSection(name: typeof SECTION_NAMES[number], captures: Capture[], recording: Recording | undefined, language: Language, packageFiles?: Map<string,string>): string {
   const unavailable = language === 'zh' ? '未采集或不可得。' : 'Not captured or unavailable.';
   const blocks = captures.map((capture, index) => ({ capture, label: captures.length > 1 ? `Capture ${index + 1} (${capture.id})` : '' }));
   const joined = (render: (capture: Capture) => string) => blocks.map(({ capture, label }) => `${label ? `### ${label}\n\n` : ''}${render(capture)}`).join('\n\n');
@@ -100,7 +103,7 @@ function renderSection(name: typeof SECTION_NAMES[number], captures: Capture[], 
   let body: string;
   switch (name) {
     case 'Meta':
-      body = joined((capture) => json({ id: capture.id, timestamp: capture.timestamp, mode: capture.mode, ...capture.meta }));
+      body = joined((capture) => json({ id: capture.id, timestamp: capture.timestamp, mode: capture.mode, ...capture.meta,toolVersion:capture.meta.toolVersion ?? TOOL_VERSION,rights:RIGHTS_NOTICE }));
       break;
     case 'Locators': body = joined((capture) => json(capture.locators)); break;
     case 'Structure':
@@ -141,7 +144,7 @@ function renderSection(name: typeof SECTION_NAMES[number], captures: Capture[], 
       body = behaviorContract(recording, language);
       break;
     case 'Reference Impl':
-      body = joined((capture) => `${language === 'zh' ? '以下是基于已采集 HTML/CSS 的 vanilla 骨架，不代表原工程业务实现。' : 'This vanilla skeleton uses the captured HTML/CSS and does not claim to restore the original application logic.'}\n\n${codeFence(`${capture.html}\n\n<style>\n${embeddedCss(capture.css)}\n</style>`, 'html')}`);
+      body = joined((capture) => capture.meta.captureKind==='page' ? `打开 ZIP 中的 [${packageFiles?.get(capture.id) ?? 'page.html'}](./${packageFiles?.get(capture.id) ?? 'page.html'})，查看结构和样式的实现参考。仅是静态采集快照，不包含原工程业务逻辑。` : `${language === 'zh' ? '以下是基于已采集 HTML/CSS 的 vanilla 骨架，不代表原工程业务实现。' : 'This vanilla skeleton uses the captured HTML/CSS and does not claim to restore the original application logic.'}\n\n${codeFence(`${capture.html}\n\n<style>\n${embeddedCss(capture.css)}\n</style>`, 'html')}`);
       break;
     case 'Degradations':
       body = list([...captures.flatMap((capture) => capture.degradations), ...(recording?.degradations ?? [])], unavailable);
@@ -152,15 +155,15 @@ function renderSection(name: typeof SECTION_NAMES[number], captures: Capture[], 
 
 function fitSummary(header: string, sections: string[], language: Language): string {
   const budget = 15 * 1024;
-  const omitted = language === 'zh' ? '部分完整章节因 15 KB 剪贴板预算而省略。' : 'Some complete sections were omitted to fit the 15 KB clipboard budget.';
-  const suffix = `\n\n> ${omitted}`;
-  const kept: string[] = [];
-  for (const section of sections) {
-    const candidate = [header, ...kept, section].join('\n\n') + suffix;
-    if (byteLength(candidate) <= budget) kept.push(section);
+  const names=sections.map((section,index)=>section.match(/^## (.+)/m)?.[1] ?? `Note ${index+1}`);
+  const prefix=language==='zh'?'15 KB 摘要省略的章节：':'Sections omitted from the 15 KB summary: ';
+  const allNotice=`\n\n> ${prefix}${names.join(', ')}.`;
+  const kept:string[]=[],omitted:string[]=[];
+  for(const [index,section] of sections.entries()){
+    if(byteLength([header,...kept,section].join('\n\n')+allNotice)<=budget)kept.push(section);
+    else omitted.push(names[index]);
   }
-  const result = [header, ...kept].join('\n\n');
-  return kept.length === sections.length ? result : result + suffix;
+  return [header,...kept].join('\n\n')+(omitted.length?`\n\n> ${prefix}${omitted.join(', ')}.`:'');
 }
 
 function renderCompactSummary(header: string, captures: Capture[], recording: Recording | undefined, language: Language): string {
@@ -175,7 +178,7 @@ function renderCompactSummary(header: string, captures: Capture[], recording: Re
   const sections = [
     `## Targets\n\n${json(targets)}`,
     `## Locators\n\n${json(locators)}`,
-    `## Meta\n\n${json(selected.map((capture) => ({ id: compactString(capture.id, 80), timestamp: capture.timestamp, url: compactString(capture.meta.url, 500), viewport: capture.meta.viewport, reach: capture.meta.reach.slice(0, 8).map((step) => compactString(step, 200)) })))}`,
+    `## Meta\n\n${json(selected.map((capture) => ({ id: compactString(capture.id, 80), timestamp: capture.timestamp, toolVersion:TOOL_VERSION,rights:RIGHTS_NOTICE,url: compactString(capture.meta.url, 500), viewport: capture.meta.viewport, reach: capture.meta.reach.slice(0, 8).map((step) => compactString(step, 200)) })))}`,
     capabilitySection(selected,true),
     `## Structure (depth 0–2)\n\n${json(structure)}`,
     `## Design Tokens\n\n${json(selected.map((capture) => ({ id: capture.id, tokens: capture.tokens })))}`,
@@ -185,8 +188,8 @@ function renderCompactSummary(header: string, captures: Capture[], recording: Re
   const output = fitSummary(header, sections, language);
   const sourceWasOmitted = captures.some((capture) => !!capture.html || !!capture.css);
   if (!sourceWasOmitted) return output;
-  const note = language === 'zh' ? '> 完整 HTML/CSS 因 15 KB 剪贴板预算而省略。' : '> Complete HTML/CSS was omitted to fit the 15 KB clipboard budget.';
-  return fitSummary(header, [...sections, note], language);
+  const note = language === 'zh' ? '> 完整 HTML/CSS 章节（Cleaned HTML、Scoped CSS、Reference Impl）因 15 KB 剪贴板预算而省略；Structure 仅保留 depth 0–2。' : '> Complete HTML/CSS sections omitted: Cleaned HTML, Scoped CSS, Reference Impl; Structure retains depth 0–2 only.';
+  return fitSummary(`${header}\n\n${note}`, sections, language);
 }
 
 export function renderMarkdown(captures: Capture[], options: MarkdownOptions = {}): string {
@@ -197,7 +200,7 @@ export function renderMarkdown(captures: Capture[], options: MarkdownOptions = {
   const status = saved
     ? (language === 'zh' ? `\n\n已保存完整包：${saved}` : `\n\nFull package saved as: ${saved}`)
     : '';
-  const header = `# SourcePin${status}`;
+  const header = `# SourcePin${status}\n\n> ${RIGHTS_NOTICE}`;
   const recordingId=options.recordingCaptureId ?? captures[0].id;
   const prepared=captures.map(capture=>{
     const capabilities={...capabilitiesFor(capture)};
@@ -217,8 +220,10 @@ export function renderMarkdown(captures: Capture[], options: MarkdownOptions = {
     let eligible=rich;
     if(name==='Cleaned HTML')eligible=rich.filter(capture=>capture.capabilities.markup.status==='present');
     if(name==='Scoped CSS')eligible=rich.filter(capture=>capture.capabilities.css.status==='present');
-    if(name==='Reference Impl')eligible=rich.filter(capture=>capture.meta.captureKind!=='page');
-    if(eligible.length)sections.push(renderSection(name,eligible,options.recording,language));
+    if(eligible.length)sections.push(renderSection(name,eligible,options.recording,language,new Map(prepared.map((capture,index)=>[capture.id,options.packageFiles?.[index] ?? (index===0?'page.html':`page-${index+1}.html`)]))));
   }
-  return [header,...sections].join('\n\n');
+  const output=[header,...sections].join('\n\n');
+  const limit=options.maxBytes ?? 4*1024*1024;
+  if(byteLength(output)>limit)throw new Error(`Markdown exceeds ${limit} bytes; reduce capture range or viewports. No sections were silently omitted.`);
+  return output;
 }

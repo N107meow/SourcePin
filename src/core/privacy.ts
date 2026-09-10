@@ -26,7 +26,7 @@ function sanitizeUrl(value: string, base: string): string {
   }
 }
 
-export function safeAttributes(element: Element, base = element.ownerDocument.baseURI): Record<string, string> {
+export function safeAttributes(element: Element, base = element.ownerDocument.baseURI): { attributes: Record<string,string>; removed: string[] } {
   const result: Record<string, string> = {};
   for (const attribute of [...element.attributes]) {
     const name = attribute.name.toLowerCase();
@@ -39,7 +39,7 @@ export function safeAttributes(element: Element, base = element.ownerDocument.ba
     if (!value && (URL_ATTRIBUTES.has(name) || ['style','srcset','xlink:href'].includes(name))) continue;
     result[name] = ['style','srcset','sizes'].includes(name) ? value : value.slice(0, 1000);
   }
-  return result;
+  return {attributes:result,removed:[...element.attributes].map(attribute=>attribute.name).filter(name=>!(name.toLowerCase() in result))};
 }
 
 export function safeDocumentUrl(value: string): string {

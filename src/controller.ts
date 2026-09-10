@@ -4,6 +4,8 @@ import { captureElement } from './core/capture';
 import { validateLocators } from './core/locators';
 import { createRecorder } from './core/recorder';
 import { renderMarkdown } from './core/markdown';
+import { createPagePackage, EXPORT_LIMITS } from './core/package';
+import { scanPersonalInfo } from './core/review';
 import { visibleChildren } from './core/dom';
 import { normalizeSettings } from './platform/policy';
 
@@ -41,12 +43,12 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   let busy=false,copied=false,alive=true,picking=true,hover: Element | null=null;
   let status='指向元素，点击选中';let savedFilename: string | undefined;
   let operation: AbortController | undefined;let revision=0;let raf=0;
-  let escapeArmed=false;
+  let escapeArmed=false;let exporting:AbortController | undefined;
   const documents=new Map<Document,()=>void>();
   const recordings=()=>recorder?.snapshot() || recorded;
   const markdown=(summary=false)=>renderMarkdown([...captures,...viewports],{summary,language:settings.language,recording:recordings(),savedFilename});
   const valid=()=>captures.length>0 && selected.every((el,i)=>el.isConnected && validateLocators(el,captures[i]?.locators || []).some(l=>l.verified));
-  const state=(): UIState=>({mode:settings.mode,status,count:selected.length,summary:captures.length ? `${describe(selected[0])}\n${captures[0].target.text.slice(0,70)}`:'',copied,busy,recording:!!recorder,matched:valid(),markdown:captures.length?markdown():'',settings});
+  const state=(): UIState=>({mode:settings.mode,status,count:selected.length,summary:captures.length ? `${describe(selected[0])}\n${captures[0].target.text.slice(0,70)}`:'',copied,busy,recording:!!recorder,matched:valid(),markdown:captures.length?preview():'',settings});
   const ui=createUI({
     copy:()=>void copy(),download:()=>void download(),close:()=>destroy(),
     repick:()=>resetSelection(),
@@ -63,7 +65,9 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   },state(),assetUrl);
   const update=()=>{if(alive)ui.update(state());};
 
+  function preview(){try{return markdown();}catch(error){return error instanceof Error?error.message:String(error);}}
   function resetSelection(){
+    exporting?.abort();while(ui.closePanel()){}
     recorder?.dispose();recorder=undefined;recorded=undefined;
     operation?.abort();busy=false;picking=true;escapeArmed=false;hover=null;
     captureKind='element';selected=[];captures=[];viewports=[];copied=false;savedFilename=undefined;revision++;
@@ -105,27 +109,52 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     if(!valid()){copied=false;status='目标已变化，请重新选择';update();ui.toast(status);return false;}
     return true;
   }
-  async function copy() {
-    if(!ensureFresh())return;
+  async function exportAction(action:string, run:(signal:AbortSignal)=>Promise<void>, screenshot=false, downloadsImages=false){
+    if(exporting){ui.toast('请先完成或取消当前导出');return;}
+    const job=new AbortController();exporting=job;
     const version=revision;
-    try {await platform.copy(markdown(true));if(alive && revision===version){copied=true;status='提示词已复制';update();ui.toast('已复制，粘贴给你的 AI Agent');}}
-    catch(error){copied=false;update();ui.toast(error instanceof Error?error.message:'复制失败，请下载 Markdown');}
+    const payload=JSON.stringify({captures:[...captures,...viewports],recording:recordings()});
+    try{
+      const accepted=await ui.review({action,counts:scanPersonalInfo(payload),screenshot,downloadsImages});
+      if(!accepted || job.signal.aborted || !alive)return;
+      if(version!==revision){ui.toast('确认期间页面或选择已变化，请重新采集后导出');return;}
+      await run(job.signal);
+    }catch(error){if(!job.signal.aborted && alive)ui.toast(error instanceof Error?error.message:'导出未完成');}
+    finally{if(exporting===job)exporting=undefined;}
+  }
+  async function copy(withScreenshot=false) {
+    if(!ensureFresh())return;
+    const text=markdown(true),version=revision;
+    await exportAction(withScreenshot?'复制摘要并截图':'复制摘要',async signal=>{
+      await platform.copy(text);
+      if(alive && revision===version){copied=true;status='提示词已复制';update();ui.toast('已复制，粘贴给你的 AI Agent');}
+      if(withScreenshot){if(platform.screenshot)await saveScreenshot(true,signal);else ui.toast('摘要已复制；截图需要 Chrome 扩展版');}
+    },withScreenshot);
   }
   async function download() {
     if(!ensureFresh())return;
-    const filename=`sourcepin-${settings.mode}-${new Date().toISOString().replace(/[:.]/g,'-')}.md`;
-    try {const result=await platform.download(markdown(),filename);ui.toast(result);/* A dialog submission is not proof that a file was saved. */}
-    catch(error){ui.toast(error instanceof Error?error.message:'保存已取消或失败');}
+    const snapshots=[...captures,...viewports],page=snapshots.some(capture=>capture.meta.captureKind==='page');
+    const recording=recordings();
+    const filename=`sourcepin-${settings.mode}-${new Date().toISOString().replace(/[:.]/g,'-')}.${page?'zip':'md'}`;
+    await exportAction(page?'下载离线 ZIP':'下载 Markdown',async signal=>{
+      const output=page?await createPagePackage(snapshots,{signal,language:settings.language,recording}):renderMarkdown(snapshots,{language:settings.language,recording});
+      if(typeof output==='string' && new TextEncoder().encode(output).length>EXPORT_LIMITS.maxReportBytes)throw new Error('Markdown 超过 4 MiB，请减少选择范围或视口数量；未导出文件。');
+      signal.throwIfAborted();if(!alive)return;
+      ui.toast(await platform.download(output,filename));
+    },false,page);
   }
   async function screenshot(component: boolean){
     if(!platform.screenshot){ui.toast('截图需要 Chrome 扩展版；当前可复制或下载 Markdown');return;}
     if(component && !ensureFresh())return;
+    await exportAction('保存截图',signal=>saveScreenshot(component,signal),true);
+  }
+  async function saveScreenshot(component:boolean,signal:AbortSignal){
     ui.hide(true);
     try {
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-      ui.toast(await platform.screenshot(component?topRect(selected[0]):undefined));
-    }catch(error){ui.toast(error instanceof Error?error.message:'截图失败');}
-    finally{if(alive)ui.hide(false);}
+      signal.throwIfAborted();
+      ui.toast(await platform.screenshot!(component?topRect(selected[0]):undefined));
+    }finally{if(alive)ui.hide(false);}
   }
   function toggleRecording(){
     if(recorder){recorded=recorder.stop();recorder=undefined;picking=false;status=`已记录 ${recorded.states.length} 个状态`;copied=false;revision++;update();return;}
@@ -190,7 +219,7 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     if(key.repeat || editable(key) || selectedText((event.currentTarget as Document)))return;
     if(!(key.metaKey || key.ctrlKey) || key.altKey)return;
     if(key.key.toLowerCase()==='c' && selected.length){
-      key.preventDefault();key.stopImmediatePropagation();void copy();if(key.shiftKey)void screenshot(true);
+      key.preventDefault();key.stopImmediatePropagation();void copy(key.shiftKey);
     }else if(key.shiftKey && key.key.toLowerCase()==='m' && selected.length){key.preventDefault();key.stopImmediatePropagation();void download();}
   }
   function attach(doc: Document){
@@ -217,7 +246,7 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     scanFrames(document);
   },250);
   function destroy(){
-    if(!alive)return;alive=false;operation?.abort();recorder?.dispose();recorder=undefined;
+    if(!alive)return;alive=false;exporting?.abort();operation?.abort();recorder?.dispose();recorder=undefined;
     clearInterval(timer);cancelAnimationFrame(raf);for(const cleanup of documents.values())cleanup();documents.clear();
     captures=[];viewports=[];selected=[];recorded=undefined;ui.destroy();onDispose?.();
   }

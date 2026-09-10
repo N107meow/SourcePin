@@ -1,3 +1,6 @@
+import {unzip} from './helpers/zip.mjs';
+import {pathToFileURL} from 'node:url';
+import { confirmExport } from './helpers/export.mjs';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { resolve } from 'node:path';
@@ -34,7 +37,7 @@ try{
   await page.getByTestId('project-toggle').click();
   await page.waitForFunction(()=>{const r=document.querySelector('[data-sourcepin-root]')?.shadowRoot;return r?.querySelector('.screen-count').textContent==='1' && !r.querySelector('.robot').classList.contains('busy');});
   assert.equal(await page.getByTestId('project-toggle').getAttribute('aria-expanded'),'false');
-  await page.keyboard.press('Meta+c');
+  await page.keyboard.press('Meta+c');await page.screenshot({path:'artifacts/export-review.png'});await confirmExport(page);
   await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.copy').dataset.copied==='true');
   const lite=await page.evaluate(()=>navigator.clipboard.readText());assert.match(lite,/project-toggle/);
   await writeFile('artifacts/example-lite.md',lite);
@@ -51,7 +54,7 @@ try{
   await page.waitForTimeout(450);
   await root.locator('[data-action="record"]').click();
   await root.locator('[data-action="panel-close"]').filter({visible:true}).first().click();
-  await page.keyboard.press('Meta+c');
+  await page.keyboard.press('Meta+c');await confirmExport(page);
   const pro=await page.evaluate(()=>navigator.clipboard.readText());assert.match(pro,/workspace-card/);
   results.push('Pro passive recording preserves real page interaction');
   await root.locator('.screen').click();
@@ -72,7 +75,7 @@ try{
   await page.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
   await page.getByTestId('activity-card').click({position:{x:5,y:50},modifiers:['Shift']});
   await page.waitForFunction(()=>{const r=document.querySelector('[data-sourcepin-root]').shadowRoot;return r.querySelector('.screen-count').textContent==='2'&&!r.querySelector('.robot').classList.contains('busy');});
-  await page.keyboard.press('Meta+c');
+  await page.keyboard.press('Meta+c');await confirmExport(page);
   await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.copy').dataset.copied==='true');
   const multi=await page.evaluate(()=>navigator.clipboard.readText());assert.match(multi,/workspace-card/);assert.match(multi,/activity-card/);
   results.push('Shift multi-select copies both independently verified targets');
@@ -80,13 +83,13 @@ try{
   await page.evaluate(()=>document.querySelector('.advanced').open=true);
   await page.getByTestId('shadow-button').click();
   await page.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
-  await page.keyboard.press('Meta+c');
+  await page.keyboard.press('Meta+c');await confirmExport(page);
   await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.copy').dataset.copied==='true');
   assert.match(await page.evaluate(()=>navigator.clipboard.readText()),/shadow-button/);
   const frameButton=page.frameLocator('iframe').getByTestId('frame-button');
   await frameButton.click();
   await page.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
-  await page.keyboard.press('Meta+c');
+  await page.keyboard.press('Meta+c');await confirmExport(page);
   await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.copy').dataset.copied==='true');
   const frameText=await page.evaluate(()=>navigator.clipboard.readText());assert.match(frameText,/frame-button/);assert.match(frameText,/frame/);
   const actual=await frameButton.boundingBox();
@@ -115,7 +118,7 @@ try{
 
   await root.locator('[data-action="capture-panel"]').click();
   const screenshotDownload=page.waitForEvent('download',{timeout:6000});
-  await root.locator('[data-action="component-shot"]').click();
+  await root.locator('[data-action="component-shot"]').click();await confirmExport(page);
   const png=await screenshotDownload;await png.saveAs('artifacts/04-component-capture.png');
   assert.match(png.suggestedFilename(),/\.png$/);
   const pngBytes=await readFile('artifacts/04-component-capture.png');
@@ -132,7 +135,7 @@ try{
   // in the real UI, only the unavailable optional permission is controlled.
   await worker.evaluate(()=>{chrome.permissions.request=async()=>false;});
   const markdownDownload=page.waitForEvent('download',{timeout:6000});
-  await root.locator('.download').click();
+  await root.locator('.download').click();await confirmExport(page);
   const md=await markdownDownload;await md.saveAs('artifacts/example-downloaded.md');assert.match(md.suggestedFilename(),/\.md$/);
   results.push('Permission-denied Markdown fallback downloads a real file');
   await page.screenshot({path:'artifacts/05-advanced.png'});
@@ -143,7 +146,7 @@ try{
   await bookmarkRoot.locator('[data-action="onboarding-done"]').click();
   await bookmarkPage.getByTestId('project-toggle').click();
   await bookmarkPage.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
-  await bookmarkPage.keyboard.press('Meta+c');
+  await bookmarkPage.keyboard.press('Meta+c');await confirmExport(bookmarkPage);
   await bookmarkPage.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.copy').dataset.copied==='true');
   assert.match(await bookmarkPage.evaluate(()=>navigator.clipboard.readText()),/project-toggle/);
   await bookmarkPage.keyboard.press('Escape');assert.equal(await bookmarkRoot.count(),1);
@@ -169,19 +172,39 @@ try{
     assert.equal(await root.locator('.robot').getAttribute('data-mode'),'lite');
     await root.locator('[data-action="capture-panel"]').click();await root.locator('[data-action="whole-page"]').click();
     await whole.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
-    const downloaded=whole.waitForEvent('download');await root.locator('.download').click();
-    const file=await downloaded,path=`artifacts/page-${adapter}.md`;await file.saveAs(path);
-    const report=await readFile(path,'utf8');
+    const downloaded=whole.waitForEvent('download');await root.locator('.download').click();await confirmExport(whole);
+    const file=await downloaded,path=`artifacts/page-${adapter}.zip`;await file.saveAs(path);
+    assert.match(file.suggestedFilename(),/\.zip$/);
+    const zipBytes=await readFile(path),files=unzip(zipBytes);
+    const directory=`artifacts/page-${adapter}`;await mkdir(directory,{recursive:true});
+    for(const [name,bytes] of Object.entries(files))await writeFile(`${directory}/${name}`,bytes);
+    const report=files['report.md'].toString();
     assert.match(report,/"captureKind": "page"/);assert.match(report,/## Cleaned HTML/);assert.match(report,/Row 1199/);
     assert.match(report,/shadowrootmode="open"/);assert.match(report,/Template public fixture/);assert.match(report,/position: absolute/);assert.match(report,/srcset=/);
     assert.doesNotMatch(report,/HIDDEN_FIXTURE_PRIVATE|PAYWALL_FIXTURE_PRIVATE|FRAME_FIXTURE_PRIVATE|FORM_FIXTURE_PRIVATE|TOKEN_FIXTURE_PRIVATE|TEMPLATE_FIXTURE_PRIVATE/);
     const meta=JSON.parse(report.split('## Meta\n')[1].split('```json\n')[1].split('\n```')[0]);
     const structure=JSON.parse(report.split('## Structure\n')[1].split('```json\n')[1].split('\n```')[0]);
     assert.ok(structure.nodes.length>3600);assert.ok(meta.documentHeight>10000);assert.equal(meta.images.total,1);
-    pageEvidence.push({adapter,nodes:structure.nodes.length,bytes:Buffer.byteLength(report),meta});
+    const captured=JSON.parse(files['structure.json'])[0];
+    assert.ok(captured.degradations.some(note=>/Structure byte budget|Node budget reached/.test(note)));
+    const rawHtml=report.split('## Cleaned HTML\n')[1].split('```html\n')[1].split('\n```')[0];
+    const rawCss=report.split('## Scoped CSS\n')[1].split('```css\n')[1].split('\n```')[0];
+    const captureBytes=Buffer.byteLength(rawHtml+rawCss+JSON.stringify(captured.nodes));
+    assert.ok(captureBytes<=meta.budgets.maxBytes);assert.ok(zipBytes.length<=16*1024*1024);assert.ok(files['page.html'].length<=8*1024*1024);
+    assert.equal(structure.target.siblingCount,2);
+    const offline=await context.newPage();let requests=0;
+    await offline.route(/^https?:/,route=>{requests++;return route.abort();});
+    await offline.goto(pathToFileURL(resolve(directory,'page.html')).href);
+    assert.equal(await offline.locator('h1').isVisible(),true);assert.equal(await offline.getByText('Row 1199',{exact:true}).isVisible(),true);
+    assert.equal(await offline.getByText('Shadow public fixture',{exact:true}).isVisible(),true);
+    assert.match(await offline.locator('template:not([shadowrootmode])').evaluate(el=>el.content.textContent),/Template public fixture/);
+    await offline.waitForFunction(()=>document.querySelector('img').naturalWidth>0);
+    assert.equal(await offline.locator('script').count(),0);assert.equal(requests,0);
+    await offline.screenshot({path:`artifacts/offline-${adapter}.png`});await offline.close();
+    pageEvidence.push({adapter,nodes:structure.nodes.length,captureBytes,zipBytes:zipBytes.length,htmlBytes:files['page.html'].length,reportBytes:Buffer.byteLength(report),siblingCount:structure.target.siblingCount,externalRequests:requests,degradations:captured.degradations,meta});
     await root.locator('.screen').click();await whole.screenshot({path:`artifacts/page-${adapter}.png`});
     await whole.keyboard.press('Escape');await whole.keyboard.press('Escape');await whole.close();
-    results.push(`${adapter}: Lite whole-page DOM downloads full sanitized long-page markup with capabilities`);
+    results.push(`${adapter}: Lite whole-page ZIP opens offline with images and shadow/template, zero requests, explicit budget cutoff`);
   }
   await writeFile('artifacts/page-capture-results.json',JSON.stringify({timestamp:new Date().toISOString(),captures:pageEvidence},null,2));
   assert.deepEqual(errors,[]);

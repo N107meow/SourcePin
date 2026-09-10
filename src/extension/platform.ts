@@ -18,6 +18,7 @@ export function createExtensionPlatform(): Platform {
       await navigator.clipboard.writeText(text);
     },
     async download(text,filename){
+      if(text instanceof Blob){saveBlob(text,filename);return '已发起 ZIP 下载，保存位置由浏览器设置决定';}
       const result=await request<{fallback:boolean}>({type:'download',text,filename});
       if(result.fallback){ saveBlob(new Blob([text],{type:'text/markdown;charset=utf-8'}),filename); return '已发起下载，保存位置由浏览器设置决定'; }
       return '已提交系统保存对话框';

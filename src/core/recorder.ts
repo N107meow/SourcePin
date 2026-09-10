@@ -71,7 +71,7 @@ export function createRecorder(element: Element, onChange?: () => void): Recorde
     if (!running || states.length >= MAX_STATES) { if (states.length >= MAX_STATES) degrade('Recording state limit reached.'); return undefined; }
     if (!element.isConnected && condition !== 'detached') return undefined;
     const displayCondition = label(condition, suffix);
-    const state: RecordedState = { id: `state-${++stateCounter}`, name: displayCondition, at: Math.round(view?.performance.now() ?? performance.now()), styles: sampleStyles(element), attributes: safeAttributes(element), condition: displayCondition };
+    const state: RecordedState = { id: `state-${++stateCounter}`, name: displayCondition, at: Math.round(view?.performance.now() ?? performance.now()), styles: sampleStyles(element), attributes: safeAttributes(element).attributes, condition: displayCondition };
     const previous = states.at(-1);
     states.push(state);
     if (previous && transitions.length < MAX_TRANSITIONS) transitions.push({ from: previous.id, to: state.id, event: condition === 'mutation' ? 'mutation' : condition, target, styleDelta: difference(previous.styles, state.styles), changes });

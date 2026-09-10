@@ -19,8 +19,8 @@ export interface Asset { kind: string; url: string; width?: number; height?: num
 export interface Capture {
   id: string; timestamp: string; mode: Mode;
   capabilities: Capabilities;
-  meta: { captureKind: CaptureKind; documentHeight: number; documentElementRect: Rect; htmlRect: Rect; images: { total: number; complete: number }; budgets: { maxNodes: number; maxDepth: number; maxBytes: number; maxStyleNodes: number }; url: string; title: string; viewport: { width: number; height: number }; dpr: number; scroll: { x: number; y: number }; reach: string[] };
-  target: { tag: string; text: string; attributes: Record<string, string>; ancestors: string[]; childIndex: number; typeIndex: number; siblingCount: number; rect: Rect; visible: boolean; inViewport: boolean };
+  meta: { toolVersion: string; rights: string; captureKind: CaptureKind; documentHeight: number; documentElementRect: Rect; htmlRect: Rect; images: { total: number; complete: number }; budgets: { maxNodes: number; maxDepth: number; maxBytes: number; maxStyleNodes: number }; url: string; title: string; viewport: { width: number; height: number }; dpr: number; scroll: { x: number; y: number }; reach: string[] };
+  target: { tag: string; text: string; attributes: Record<string, string>; ancestors: string[]; childIndex: number; typeIndex: number; siblingCount: number; rect: Rect; visible: boolean; ancestorOpacityZero?: boolean; inViewport: boolean };
   locators: Locator[]; nodes: NodeSnapshot[]; html: string; css: string;
   tokens: Record<string, string[]>; assets: Asset[]; animations: unknown[];
   framework?: FrameworkInfo; degradations: string[];
@@ -36,7 +36,7 @@ export interface Platform {
   kind: 'extension' | 'bookmarklet' | 'demo';
   loadSettings(): Promise<Settings>; saveSettings(settings: Settings): Promise<void>;
   copy(text: string): Promise<void>;
-  download(text: string, filename: string): Promise<string>;
+  download(text: string | Blob, filename: string): Promise<string>;
   screenshot?(rect?: Rect): Promise<string>;
   framework?(element: Element): Promise<FrameworkInfo | undefined>;
 }
@@ -50,6 +50,7 @@ export interface UIActions {
   wholePage(): void; addViewport(): void;
 }
 export interface InspectorUI {
+  review(details: import('./core/review').ExportReview): Promise<boolean>;
   host: HTMLElement; update(state: UIState): void; toast(message: string): void;
   contains(event: Event): boolean; closePanel(): boolean; destroy(): void;
   highlight(rect: Rect | null, label?: string, selected?: boolean, color?: string): void;
