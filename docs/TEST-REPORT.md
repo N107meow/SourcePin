@@ -1,96 +1,60 @@
-# SourcePin 0.1.0 测试报告
+# SourcePin 整页 DOM 修复测试报告
 
-验证日期：2026-09-10（Asia/Shanghai）。最终端到端证据时间：2026-09-10T02:46:36.841Z。
+验证日期：2026-09-10。最终端到端证据时间：2026-09-10T06:25:06.532Z。
 
 ## 结果
 
-- `npm run check`：通过。TypeScript 类型检查无错误，57 项测试全部通过、0 失败、0 跳过，随后生成生产包。
-- `npm run test:e2e`：12 项端到端流程全部通过，验收页没有未捕获的 JavaScript 错误。
-- `unzip -t dist/sourcepin-0.1.0-chrome.zip`：包内 4 个文件完整性检查通过。
-- 独立代码审查已复核关闭导出骨架 CSS 边界、初始 hover 误判、无关指针释放污染录制的 3 项发现。
+- 每组按用户要求执行 `npm run check`：第一组 59 项、第二组 63 项、第三组 65 项通过；补充边界后最终 **67/67**，类型检查与生产构建通过。
+- 最终 `npm run test:e2e`：**14/14**，覆盖真实 MV3 扩展与打包书签；无未捕获 JavaScript 错误。
+- 两个分发 ZIP 的 `unzip -t` 均通过。校验值记录在 `dist/SHA256SUMS`。
+- `git diff --check` 通过；`docs/superpowers/` 历史设计与计划文件无改动。
+- 独立 Agent 额度不可用，本轮由主 Agent 自行复核、测试及核对截图；不将其表述为已通过独立审查。
 
-## 环境与方法
+## P0 验收证据
 
-macOS arm64，Node v24.16.0，Playwright 1.62.1，Chromium 151.0.7922.34。使用隔离的临时浏览器 profile，未操纵用户个人 Chrome。
+| 要求 | 已验证的行为 |
+| --- | --- |
+| P0-1 page 形态 | 默认 Lite 的整页按钮实际下载非空 HTML/CSS/Structure，且保持 Lite。重新采集保持 page，重新拾取恢复 element。预算默认 20,000 节点、40 层、2 MiB。 |
+| P0-2 能力报告 | Capabilities 紧接 Meta，逐捕获列出 present/absent 与原因；Lite 原八节名称与相对顺序保留。有适配器时按真实 framework 结果报告；混合形态只给有内容的快照追加 HTML/CSS，录制仅关联目标捕获。 |
+| P0-3 保真与隐私 | 内联定位、净化 srcset/sizes、template、声明式开放 Shadow DOM、SVG image 自闭合、长文本与 UTF-8 全局预算通过。表单值、脚本、事件属性、敏感属性与 URL 参数未回归；补测 template URL 和 CSSOM 敏感声明净化。 |
+| P0-4 隐藏护栏 | hidden/display:none/visibility:hidden/collapse 子树默认排除，目标摘要与定位文本也不会夹带隐藏正文；明确开启后包含并标记 data-sourcepin-hidden，过滤和包含数量写入报告。 |
+| P0-5 工具污染 | 工具节点排除后三兄弟恢复为 HEAD/BODY 两个；body 的 siblingCount=2、childIndex=1。同名注入节点下的结构 CSS 定位仍命中真实目标。 |
+| P0-6 外部测量 | Meta 包含 documentHeight、documentElementRect、htmlRect、captureKind、img total/complete，以及本次预算。 |
 
-端到端测试实际加载 `dist/extension`，通过 Chromium 测试 CDP 的 `Extensions.triggerAction` 触发扩展 action，走 activeTab、MV3 service worker、注入与消息传递链路。测试用的扩展调试启动参数不进入产品 manifest。复制通过真实键盘事件和系统剪贴板 API，下载通过浏览器 download 事件取得真实文件；书签测试点击打包后的 javascript 链接。
+## 固定长页的真实下载
 
-## 57 项回归测试
+[固定验收页](http://127.0.0.1:4317/demo/page-capture.html) 含 1,200 个 article、长中文/emoji 文本、定位图片、template、开放 shadow、iframe、隐藏块与隐私种子。
 
-| 范围 | 数量 | 主要检查 |
-| --- | ---: | --- |
-| capture / locators | 17 | 唯一定位、重排、重复 ID、引号、同源 frame/open shadow、表单/属性/URL 过滤、节点/深度/文本预算、CSSOM、伪元素、动画、取消 |
-| recorder / Markdown | 14 | 18 节 Pro 输出、Lite 输出、15 KB UTF-8 摘要、代码围栏、真实 hover/focus/按下/释放、pointerId、无关事件排除、超时、卸载 |
-| UI | 11 | 原 SVG 热区、Lite/Pro、复制状态、预览、语言与设置、首次引导、键盘、320×420/900×700 四角拖动与面板边界 |
-| controller | 7 | 点击不透传、只在命令时复制、原生编辑复制、取消与晚到结果、多选总预算 600、Shift 复制、高亮清理 |
-| download / lifecycle / reference | 3 | 真正下载、快速重复唤起、运行导出骨架时 CSS 不能突破 style 标签 |
-| installation | 1 | Pages 子路径、原生拖拽源数据、另一站点独立唤起与复制 |
-| platform / background | 4 | 设置限值、消息来源、可选权限拒绝、saveAs 取消与错误反馈 |
+| 适配器 | Structure 节点 | Markdown 字节 | 页面 scrollHeight | img complete/total |
+| --- | ---: | ---: | ---: | ---: |
+| extension | 3,616 | 1,077,833 | 162,006 | 1/1 |
+| bookmarklet | 3,616 | 1,077,835 | 162,006 | 1/1 |
 
-## 12 项端到端流程
+两份报告都包含 Row 1199、Template public fixture、Shadow public fixture，隐藏/表单/脚本/敏感参数种子未进入输出。complete 是加载终止状态，不能解释为所有图片加载成功。
 
-1. action 按需注入扩展。
-2. 点击只选中，Cmd+C 写入真实剪贴板。
-3. Pro 被动录制放行真实页面按钮交互。
-4. 完整 Pro 预览包含状态迁移与 ARIA 证据。
-5. Esc 清理、重新唤起及设置持久化。
-6. Shift 多选复制两个目标。
-7. 开放 Shadow DOM 与同源 iframe 采集，iframe 高亮误差小于 2 px。
-8. 输入框和 contenteditable 的原生复制。
-9. 完整导出不含植入的测试 token 与密码。
-10. 下载真实组件 PNG，核对像素尺寸并恢复工具 UI。
-11. 可选下载权限拒绝时下载真实 Markdown 文件。
-12. 打包书签实际启动、捕获、复制和退出。
+进一步在隔离 Chromium 中重新解析下载的 HTML/CSS：article 数 1,200，声明式 Shadow DOM 实际建立，template 保留惰性正文，script 数为 0，隐藏测试正文不存在，图片计算 position=absolute。此检查只验证固定页结构与关键样式，不承诺任意网站逐像素复现。
 
-## 可检查证据
+## 回归范围
 
-- [结构化端到端结果](../artifacts/e2e-results.json)
-- [Lite 界面](../artifacts/01-extension-lite.png)、[复制状态](../artifacts/02-selected-copy.png)、[Pro 预览](../artifacts/03-pro-preview.png)
-- [真实组件截图](../artifacts/04-component-capture.png)、[高级验收场景](../artifacts/05-advanced.png)
-- [Lite 示例](../artifacts/example-lite.md)、[Pro 完整示例](../artifacts/example-pro.md)、[实际下载文件](../artifacts/example-downloaded.md)
+| 范围 | 数量 |
+| --- | ---: |
+| 核心捕获、隐私与定位 | 25 |
+| controller 生命周期与整页动作 | 8 |
+| Markdown 与录制 | 15 |
+| UI | 11 |
+| 下载、生命周期、Reference CSS 边界 | 3 |
+| 安装页 | 1 |
+| platform/background | 4 |
 
-已检查最新 Pro 预览与组件 PNG：掌机颜色、原图标、面板和选中框正常，组件截图没有工具遮挡。小视口面板边界由 UI 测试覆盖。
+原有选择不透传、命令复制、双 Esc、滚动逐帧跟随、多选、录制放行、iframe/open-shadow 定位、截图、下载权限降级均继续通过。
 
-## 验证范围与边界
+## 证据与边界
 
-- 测试系统保存取消时，Chrome API 返回值由适配测试控制；权限拒绝的降级流程则走真实文件下载。没有自动操作 macOS 原生另存为对话框，不能把“已提交保存对话框”称为“文件已保存”。
-- 当前验证平台是上述 macOS/Chromium 版本；尚未实机验证 Windows、Linux、Chrome 120 或所有第三方网站。
-- 截图只包含可见像素，像素文字不做脱敏。跨域 iframe、closed Shadow DOM、浏览器内置页、严格 CSP 书签页有浏览器能力限制。
-- 捕获父组件时不展开 iframe/Shadow DOM 内部结构；可访问内部元素须直接选择。源码行号、Canvas 3D 场景和未知业务状态不作推测。
-- HTML/CSS 是捕获时的快照；复制前重新回查定位，页面变化后需重新选择以更新内容。多视口由用户实际调整窗口后追加。
-- 下载快捷键可能被浏览器保留，黄色 M 提供按钮入口。当前为本地可加载扩展，未进行商店审核或 GitHub 公开发布。
+- [书签整页实际下载](../artifacts/page-bookmarklet.md)、[扩展整页实际下载](../artifacts/page-extension.md)
+- [结构化整页结果](../artifacts/page-capture-results.json)、[完整 E2E 结果](../artifacts/e2e-results.json)
+- [书签整页截图](../artifacts/page-bookmarklet.png)、[扩展整页截图](../artifacts/page-extension.png)
+- [check 日志](../artifacts/page-check.log)、[E2E 日志](../artifacts/page-e2e.log)
 
-## 安装包
+2 MiB 指节点 JSON + HTML + CSS 的 UTF-8 内容预算，元数据及 Markdown 格式开销另计。样式独立采样，CSSOM 最多检查 2,000 条规则；采样、截断及过滤均明确说明。iframe 内部不采集，closed shadow 无法检查，截图不嵌入 Markdown。工具不自动滚动加载懒加载内容，不读取服务端业务逻辑或未展示状态。
 
-`dist/sourcepin-0.1.0-chrome.zip`，25,213 bytes。
-
-SHA-256：`3bcb3aebe430a6b7922a81377388dd21414d43e1867ff0228257d0241d4cacb2`。
-
-人工验收入口及步骤见 [ACCEPTANCE.md](ACCEPTANCE.md)，安装与启动见 [README](../README.md)。
-
-
-## 用户视觉反馈修订（2026-09-10）
-
-最新 `npm run check` 为 57/57，通过类型检查与构建；12 项端到端继续通过。
-
-- 机身投影移除透明矩形影响，Lite/Pro SVG 使用独立滤镜标识；截图像素验证两种主题的阴影颜色一致。
-- 原始矢量图标独立按压并回弹，减少动态效果设置下停用。
-- 齿轮单击显隐的底部 Switch：44×22，拇指15，拇指边框2，标签9 px。轨道用2.5px inset描边绘制，避免 Chromium 对小数 border 舍入。
-- 第一次 Esc 取消选择、清空捕获、停止录制、收起面板；第二次退出，repeat忽略，再选择重置顺序。
-- 安装页相对路径兼容 GitHub Pages 仓库子路径，书签代码内联；测试真实 link dragstart 携带完整 javascript URL，并在另一站点重放书签、选中和复制。
-- 没有自动操作用户 Chrome 的书签栏或声称已保存书签；页面内部 drop 对 javascript URL 的过滤不是书签栏行为。正式公开发布后仍需按发布说明验收浏览器书签栏。
-
-视觉证据：[Lite](../artifacts/feedback-lite.png)、[Pro](../artifacts/feedback-pro.png)、[小视口](../artifacts/feedback-mobile.png)、[安装页](../artifacts/feedback-install.png)。
-
-前一轮视觉修订经过独立只读审查。本轮追加审查因 Agent 额度限制未完成，主 Agent 自行复核改动并完成以下验证。
-
-
-## 滚动、Switch 与预览修订
-
-- 修复前回归测试复现：逐帧滚动 9px 时，选中框误差从 9px 累积到 54px。修复后页面、嵌套容器、开放 Shadow DOM 和同源 iframe 的连续六帧检查均在 0.5px 容差内，并保持同一边框节点。
-- Switch 默认隐藏；蓝色设置按钮不改变显隐，齿轮单击显示，再单击隐藏。原 44×22、拇指15、轨道描边2.5、拇指边框2、标签9 px 保持。
-- 1280×900 实测：预览 `(1060,280,188,264)`，机身 `(1060,552,188,264)`，上方间距 8px；预览内容高度 3399px、可见区域 198px，内部滚动到 150px 验证成功。
-- 320×420 小视口截图确认预览位于机身上方并保持可见，内容区随剩余高度缩短。全套检查 57/57、真实扩展与书签流程 12/12，两个分发 ZIP 完整性检查通过。
-- README 补充五项设置说明；安装页及内联书签已重新构建。旧书签需要从新版安装页重新拖入替换。
-
-最新视觉证据：[预览位于机身上方](../artifacts/feedback-preview-above.png)、[齿轮显示 Switch](../artifacts/feedback-preview-switch.png)、[矮视口](../artifacts/feedback-preview-small.png)。当前包校验值见 `dist/SHA256SUMS`。
+仅在 macOS arm64 / Chromium 151.0.7922.34 / Node v24.16.0 的隔离 profile 验证；未重新访问任务书所述 appllama.io，也未把固定页结果说成该站点已实测通过。没有新增数据上传、遥测、批量抓取或云同步；扩展偏好改为 chrome.storage.local。未公开发布 GitHub。

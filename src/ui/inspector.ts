@@ -16,6 +16,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
         <label class="field"><span data-text="language">输出语言</span><select name="language"><option value="zh">中文</option><option value="en">English</option></select></label>
         <label class="field"><span data-text="maxNodes">最大节点数</span><input name="maxNodes" type="number" min="20" max="1000" step="10"></label>
         <label class="field"><span data-text="maxDepth">最大深度</span><input name="maxDepth" type="number" min="1" max="12"></label>
+        <label class="field"><span data-text="includeHidden">包含隐藏内容</span><input name="includeHidden" type="checkbox"></label>
         <div class="panel-actions"><button class="panel-action" data-action="record"></button><button class="panel-action" data-action="repick">重新选择元素</button></div>
       </section>
       <section class="panel" data-panel="capture" aria-label="画面采集" hidden>
@@ -145,6 +146,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   const changedSettings = () => {
     const settings: Settings = {
       ...state.settings,
+      includeHidden: q<HTMLInputElement>(root, '[name="includeHidden"]').checked,
       language: q<HTMLSelectElement>(root, '[name="language"]').value as Settings['language'],
       maxNodes: Number(q<HTMLInputElement>(root, '[name="maxNodes"]').value),
       maxDepth: Number(q<HTMLInputElement>(root, '[name="maxDepth"]').value),
@@ -232,8 +234,8 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     q<HTMLElement>(root, '.copy').dataset.copied = String(next.copied);
     q<HTMLElement>(root, '.copy').setAttribute('aria-label', next.copied ? '已复制' : '复制 Markdown');
     const labels: Record<string, string> = en ? {
-      settings: 'Settings', language: 'Output language', maxNodes: 'Maximum nodes', maxDepth: 'Maximum depth', capture: 'Capture', preview: 'Preview',
-    } : { settings: '设置', language: '输出语言', maxNodes: '最大节点数', maxDepth: '最大深度', capture: '画面采集', preview: '预览' };
+      includeHidden: 'Include hidden content', settings: 'Settings', language: 'Output language', maxNodes: 'Maximum nodes', maxDepth: 'Maximum depth', capture: 'Capture', preview: 'Preview',
+    } : { includeHidden: '包含隐藏内容', settings: '设置', language: '输出语言', maxNodes: '最大节点数', maxDepth: '最大深度', capture: '画面采集', preview: '预览' };
     root.querySelectorAll<HTMLElement>('[data-text]').forEach(node => { node.textContent = labels[node.dataset.text || ''] || ''; });
     const aria: Record<string, string> = en ? {
       '.screen': 'Preview capture', '.settings-button': 'Open settings', '.capture': 'Open capture', '.drag-handle': 'Drag SourcePin', '.gear': 'Choose Lite or Pro mode', '.mode-switch': 'Switch Lite or Pro mode',
@@ -255,6 +257,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     q<HTMLSelectElement>(root, '[name="language"]').value = next.settings.language;
     q<HTMLInputElement>(root, '[name="maxNodes"]').value = String(next.settings.maxNodes);
     q<HTMLInputElement>(root, '[name="maxDepth"]').value = String(next.settings.maxDepth);
+    q<HTMLInputElement>(root, '[name="includeHidden"]').checked = !!next.settings.includeHidden;
     q<HTMLElement>(root, '[data-action="record"]').textContent = next.recording ? (en ? 'Stop recording' : '停止录制') : (en ? 'Start recording' : '开始录制');
     q<HTMLElement>(root, '[data-action="record"]').classList.toggle('danger', next.recording);
     q<HTMLElement>(root, '.preview').textContent = next.markdown || '尚未捕获内容。';

@@ -1,9 +1,10 @@
-import type { Capture, Language, Recording } from '../types.js';
+import type { Capture, Capabilities, Language, Recording } from '../types.js';
 
 export interface MarkdownOptions {
   summary?: boolean;
   language?: Language;
   recording?: Recording;
+  recordingCaptureId?: string;
   savedFilename?: string;
 }
 
@@ -45,7 +46,7 @@ function renderLiteSection(name: typeof LITE_SECTION_NAMES[number], captures: Ca
   const unavailable = language === 'zh' ? '未采集或不可得。' : 'Not captured or unavailable.';
   const values = captures.map((capture) => {
     switch (name) {
-      case 'Meta': return { id: capture.id, timestamp: capture.timestamp, url: capture.meta.url, title: capture.meta.title, viewport: capture.meta.viewport };
+      case 'Meta': return { id: capture.id, timestamp: capture.timestamp, mode: capture.mode, ...capture.meta };
       case 'Target': return capture.target;
       case 'Locators': return capture.locators;
       case 'Reach Path': return capture.meta.reach;
@@ -56,6 +57,27 @@ function renderLiteSection(name: typeof LITE_SECTION_NAMES[number], captures: Ca
     }
   });
   return `## ${name}\n\n${json(captures.length === 1 ? values[0] : values)}`;
+}
+
+// Legacy fixture/import support derives evidence from payload, never from mode.
+function capabilitiesFor(capture: Capture): Capabilities {
+  if(capture.capabilities)return capture.capabilities;
+  const entry=(present: boolean,reason: string)=>({status:present?'present' as const:'absent' as const,reason});
+  return {
+    markup:entry(!!capture.html,'Markup '+(capture.html?'is in this capture.':'was not collected.')),
+    css:entry(!!capture.css,'CSS '+(capture.css?'is in this capture.':'was not collected.')),
+    computedStyles:entry(capture.nodes.some(node=>Object.keys(node.styles).length>0),'Computed style evidence in node snapshots.'),
+    recording:entry(false,'No recording attached.'),framework:entry(!!capture.framework,'Framework metadata '+(capture.framework?'provided.':'unavailable.')),
+    screenshot:entry(false,'No embedded screenshot.'),shadowDom:entry(false,'No shadow serialization evidence.'),iframes:entry(false,'Iframe contents not captured.'),hiddenContent:entry(false,'No hidden-content inclusion evidence.'),
+  };
+}
+function capabilitySection(captures: Capture[], summary=false): string {
+  const bodies=captures.map(capture=>{
+    const capabilities={...capabilitiesFor(capture)};
+    if(summary)for(const key of ['markup','css','computedStyles'] as const)if(capabilities[key].status==='present')capabilities[key]={status:'absent',reason:'Omitted from the 15 KB clipboard summary; download full Markdown for this captured evidence.'};
+    return `### Capture ${capture.id}\n\n`+Object.entries(capabilities).map(([name,item])=>`- ${name}: ${item.status} — ${item.reason}`).join('\n');
+  });
+  return `## Capabilities\n\n${bodies.join('\n\n')}`;
 }
 
 function behaviorContract(recording: Recording | undefined, language: Language): string {
@@ -154,13 +176,14 @@ function renderCompactSummary(header: string, captures: Capture[], recording: Re
     `## Targets\n\n${json(targets)}`,
     `## Locators\n\n${json(locators)}`,
     `## Meta\n\n${json(selected.map((capture) => ({ id: compactString(capture.id, 80), timestamp: capture.timestamp, url: compactString(capture.meta.url, 500), viewport: capture.meta.viewport, reach: capture.meta.reach.slice(0, 8).map((step) => compactString(step, 200)) })))}`,
+    capabilitySection(selected,true),
     `## Structure (depth 0–2)\n\n${json(structure)}`,
     `## Design Tokens\n\n${json(selected.map((capture) => ({ id: capture.id, tokens: capture.tokens })))}`,
     `## Recording Summary\n\n${json(recording ? { states: recording.states.slice(0, 12).map(({ id, name, at, condition }) => ({ id, name, at, condition })), transitions: recording.transitions.slice(0, 16), degradations: recording.degradations } : { states: [], transitions: [], note: language === 'zh' ? '未录制。' : 'Not recorded.' })}`,
     `## Degradations\n\n${list(captures.flatMap((capture) => capture.degradations), language === 'zh' ? '无。' : 'None.')}`,
   ];
   const output = fitSummary(header, sections, language);
-  const sourceWasOmitted = captures.some((capture) => byteLength(capture.html) + byteLength(capture.css) > 8 * 1024);
+  const sourceWasOmitted = captures.some((capture) => !!capture.html || !!capture.css);
   if (!sourceWasOmitted) return output;
   const note = language === 'zh' ? '> 完整 HTML/CSS 因 15 KB 剪贴板预算而省略。' : '> Complete HTML/CSS was omitted to fit the 15 KB clipboard budget.';
   return fitSummary(header, [...sections, note], language);
@@ -175,12 +198,27 @@ export function renderMarkdown(captures: Capture[], options: MarkdownOptions = {
     ? (language === 'zh' ? `\n\n已保存完整包：${saved}` : `\n\nFull package saved as: ${saved}`)
     : '';
   const header = `# SourcePin${status}`;
-  const pro = captures.some((capture) => capture.mode === 'pro');
-  if (!pro) {
-    const liteSections = LITE_SECTION_NAMES.map((name) => renderLiteSection(name, captures, language));
-    return options.summary ? fitSummary(header, [liteSections[1], liteSections[2], liteSections[0], ...liteSections.slice(3)], language) : [header, ...liteSections].join('\n\n');
+  const recordingId=options.recordingCaptureId ?? captures[0].id;
+  const prepared=captures.map(capture=>{
+    const capabilities={...capabilitiesFor(capture)};
+    if(options.recording && capture.id===recordingId)capabilities.recording={status:'present',reason:'Observed recording is attached to this capture only.'};
+    const degradations=capture.degradations.filter(note=>!(capabilities.recording.status==='present' && note.startsWith('recording: absent')));
+    for(const [name,item] of Object.entries(capabilities))if(item.status==='absent' && !degradations.some(note=>note.startsWith(`${name}: absent`)))degradations.push(`${name}: absent — ${item.reason}`);
+    return {...capture,capabilities,degradations};
+  });
+  if(options.summary)return renderCompactSummary(header,prepared,options.recording,language);
+  // The original eight Lite sections retain their names and relative order.
+  // Additional evidence is appended only for captures that actually contain it.
+  const sections=LITE_SECTION_NAMES.map(name=>renderLiteSection(name,prepared,language));
+  sections.splice(1,0,capabilitySection(prepared));
+  const rich=prepared.filter(capture=>capture.capabilities.markup.status==='present' || capture.capabilities.css.status==='present');
+  if(rich.length)for(const name of SECTION_NAMES){
+    if((LITE_SECTION_NAMES as readonly string[]).includes(name))continue;
+    let eligible=rich;
+    if(name==='Cleaned HTML')eligible=rich.filter(capture=>capture.capabilities.markup.status==='present');
+    if(name==='Scoped CSS')eligible=rich.filter(capture=>capture.capabilities.css.status==='present');
+    if(name==='Reference Impl')eligible=rich.filter(capture=>capture.meta.captureKind!=='page');
+    if(eligible.length)sections.push(renderSection(name,eligible,options.recording,language));
   }
-  if (options.summary) return renderCompactSummary(header, captures, options.recording, language);
-  const sections = SECTION_NAMES.map((name) => renderSection(name, captures, options.recording, language));
-  return [header, ...sections].join('\n\n');
+  return [header,...sections].join('\n\n');
 }

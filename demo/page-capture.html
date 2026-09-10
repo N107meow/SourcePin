@@ -1,0 +1,12 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>SourcePin 整页 DOM 固定验收页</title>
+<style>body{margin:24px;font:16px/1.5 system-ui;color:#203c31}main{max-width:900px}.image-wrap{position:relative;width:240px;height:120px}article{padding:8px;border-bottom:1px solid #cbd8c6}.not-shown{display:none}</style></head><body>
+<h1>整页 DOM 固定验收页</h1><p>默认 Lite：三角按钮 → 捕获整页 DOM → 黄色 M 下载。隐藏内容默认排除。</p>
+<button id="launch">唤起 SourcePin</button><div class="image-wrap"><img alt="定位图" src="/src/assets/robot.svg" srcset="/src/assets/robot.svg?size=1 1x, /src/assets/robot.svg?size=2 2x" sizes="240px" style="position:absolute;height:100%;width:100%;object-fit:contain"></div>
+<main id="rows"></main><page-widget></page-widget><template><p>Template public fixture</p><input value="FORM_FIXTURE_PRIVATE"><script>window.TEMPLATE_FIXTURE_PRIVATE=true</script></template>
+<p id="long"></p><div hidden>HIDDEN_FIXTURE_PRIVATE</div><div class="not-shown">PAYWALL_FIXTURE_PRIVATE</div><iframe title="内容不采集" srcdoc="FRAME_FIXTURE_PRIVATE"></iframe><input value="FORM_FIXTURE_PRIVATE"><div data-token="TOKEN_FIXTURE_PRIVATE">Visible privacy fixture</div>
+<script>
+rows.innerHTML=Array.from({length:1200},(_,i)=>`<article data-row="${i}"><h2>Row ${i}</h2><p>公共正文 ${i}</p></article>`).join('');
+document.querySelector('page-widget').attachShadow({mode:'open'}).innerHTML='<span style="color:rgb(30,120,90)">Shadow public fixture</span><span hidden>SHADOW_HIDDEN_FIXTURE_PRIVATE</span>';
+long.textContent='多语言长文本🙂 '.repeat(1000);
+launch.onclick=async()=>{const script=document.createElement('script');script.src='/dist/sourcepin.js';script.dataset.sourcepinUi='true';document.head.append(script);};
+</script></body></html>

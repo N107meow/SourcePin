@@ -15,6 +15,9 @@ test('settings from storage are constrained before driving capture', async () =>
     assert.equal(normalizeSettings({ maxNodes:1e9 }).maxNodes,1000);
     assert.equal(normalizeSettings({ maxDepth:-1 }).maxDepth,1);
     assert.equal(normalizeSettings({ maxNodes:NaN }).maxNodes,300);
+    assert.equal(normalizeSettings({}).includeHidden,false);
+    assert.equal(normalizeSettings({includeHidden:'true'}).includeHidden,false);
+    assert.equal(normalizeSettings({includeHidden:true}).includeHidden,true);
     assert.equal(normalizeSettings({ language:'en', mode:'pro' }).language,'en');
     assert.equal(safeFilename('../../secret\n.md'),'secret.md');
     assert.equal(validateDownload({ text:'report', filename:'report.md' }),true);

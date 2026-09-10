@@ -1,4 +1,5 @@
 import type { Locator } from '../types';
+import { visibleChildren, peerSelector } from './dom';
 import { safeAttributes, safeText } from './privacy';
 
 const BUSINESS_ATTRIBUTES = ['data-testid', 'data-test', 'data-qa', 'data-cy', 'data-id', 'data-conv-id', 'name'];
@@ -66,8 +67,9 @@ function structuralSelector(element: Element, stop?: Element): string {
       parts.unshift(tag);
       break;
     }
-    const peers = [...parent.children].filter((child) => child.localName === tag);
-    parts.unshift(peers.length > 1 ? `${tag}:nth-of-type(${peers.indexOf(current) + 1})` : tag);
+    const peers = visibleChildren(parent).filter((child) => child.localName === tag);
+    const hasExcludedPeer = [...parent.children].filter(child => child.localName === tag).length !== peers.length;
+    parts.unshift(hasExcludedPeer ? `:nth-child(${peers.indexOf(current) + 1} of ${peerSelector(parent, tag)})` : peers.length > 1 ? `${tag}:nth-of-type(${peers.indexOf(current) + 1})` : tag);
     current = parent;
   }
   return parts.join(' > ');
@@ -127,6 +129,6 @@ export function generateLocators(element: Element): Locator[] {
       break;
     }
   }
-  candidates.push({ kind: 'xpath', value: `.//${structuralSelector(element).replaceAll(' > ', '/').replace(/:nth-of-type\((\d+)\)/g, '[$1]')}`, stability: 'unstable', matches: null, verified: false });
+  if (!structuralSelector(element).includes(':nth-child(')) candidates.push({ kind: 'xpath', value: `.//${structuralSelector(element).replaceAll(' > ', '/').replace(/:nth-of-type\((\d+)\)/g, '[$1]')}`, stability: 'unstable', matches: null, verified: false });
   return validateLocators(element, candidates).sort((a, b) => Number(b.verified) - Number(a.verified));
 }

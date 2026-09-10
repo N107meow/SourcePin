@@ -49,16 +49,16 @@ function capture(overrides = {}) {
   };
 }
 
-const sections = ['Meta', 'Locators', 'Structure', 'Cleaned HTML', 'Scoped CSS', 'Pseudo Elements', 'Design Tokens', 'Geometry', 'Assets', 'Animations', 'A11y', 'Component', 'Interaction States', 'State Machine', 'Animation Spec', 'Behavior Contract', 'Reference Impl', 'Degradations'];
+const sections = ['Meta', 'Capabilities', 'Target', 'Locators', 'Reach Path', 'Context', 'Geometry', 'Framework', 'Degradations', 'Structure', 'Cleaned HTML', 'Scoped CSS', 'Pseudo Elements', 'Design Tokens', 'Assets', 'Animations', 'A11y', 'Component', 'Interaction States', 'State Machine', 'Animation Spec', 'Behavior Contract', 'Reference Impl'];
 
-test('Pro export contains the complete 18-section reproduction package', () => {
+test('rich export preserves Lite base sections and appends captured reproduction evidence', () => {
   const output = markdown.renderMarkdown([capture()]);
   assert.deepEqual([...output.matchAll(/^## (.+)$/gm)].map((match) => match[1]), sections);
 });
 
 test('Lite export is a concise element snapshot', () => {
-  const output = markdown.renderMarkdown([capture({ mode: 'lite' })]);
-  assert.deepEqual([...output.matchAll(/^## (.+)$/gm)].map((match) => match[1]), ['Meta', 'Target', 'Locators', 'Reach Path', 'Context', 'Geometry', 'Framework', 'Degradations']);
+  const output = markdown.renderMarkdown([capture({ mode: 'lite', html: '', css: '' })]);
+  assert.deepEqual([...output.matchAll(/^## (.+)$/gm)].map((match) => match[1]), ['Meta', 'Capabilities', 'Target', 'Locators', 'Reach Path', 'Context', 'Geometry', 'Framework', 'Degradations']);
   assert.doesNotMatch(output, /^## Cleaned HTML$/m);
 });
 
@@ -235,4 +235,14 @@ test('long transitions are reported as timeout rather than settled', async () =>
   assert.ok(recording.states.some((state) => state.condition.startsWith('hover:timeout')));
   assert.equal(recording.states.some((state) => state.condition.startsWith('hover:settled')), false);
   assert.ok(recording.degradations.some((message) => /timeout/i.test(message)));
+});
+
+test('capabilities follow each capture instead of the mode and recording belongs only to its target',()=>{
+  const rich=capture({mode:'lite'}), lean=capture({id:'lean',mode:'pro',html:'',css:'',nodes:[]});
+  const md=markdown.renderMarkdown([rich,lean],{recording:{states:[{id:'s1'}],transitions:[],degradations:[]},recordingCaptureId:'cap-1'});
+  assert.match(md,/## Meta[\s\S]*?## Capabilities/);assert.match(md,/markup: present/);assert.match(md,/markup: absent/);assert.match(md,/## Cleaned HTML/);
+  const capabilities=md.split('## Capabilities\n')[1].split('\n## ')[0];
+  assert.match(capabilities,/cap-1[\s\S]*recording: present/);assert.match(capabilities,/lean[\s\S]*recording: absent/);
+  const html=md.split('## Cleaned HTML\n')[1].split('\n## ')[0];assert.doesNotMatch(html,/lean/);
+  const summary=markdown.renderMarkdown([rich],{summary:true});assert.match(summary,/## Capabilities/);assert.match(summary,/HTML\/CSS.*省略|omitted/i);
 });

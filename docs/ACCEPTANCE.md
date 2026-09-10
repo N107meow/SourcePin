@@ -57,7 +57,7 @@ npm run dev
 
 选择“更多验收场景”中的隐私字段区域并导出，搜索测试密码、token、脚本和事件属性；再把页面底部 SourcePin 链接拖到书签栏，在普通网页尝试书签版。
 
-预期：DOM Markdown 不包含表单值、敏感 token、脚本或事件处理属性；截图中的可见文字仍属于原始像素，没有脱敏。书签版可完成共享内核的选择、复制和 Markdown 下载，但没有扩展截图及 Chrome 设置同步；严格 CSP 页面可能阻止运行。
+预期：DOM Markdown 不包含表单值、敏感 token、脚本或事件处理属性；截图中的可见文字仍属于原始像素，没有脱敏。书签版可完成共享内核的选择、复制和 Markdown 下载，但没有扩展截图及跨会话偏好保存；严格 CSP 页面可能阻止运行。
 
 验收发现的问题请记录使用方式、页面 URL、Chrome 版本、操作步骤、预期和实际结果，并附上相关 Markdown 或截图。GitHub 发布账号、目标仓库和许可证在本轮验收完成后再确定。
 
@@ -72,3 +72,14 @@ npm run dev
 ## 滚动跟随
 
 选中一个组件后连续滚动页面，再测试内部滚动容器。选中边框应贴住目标，不应出现原来约四分之一秒的追赶；按一次 Esc 后边框清除。预览打开时拖动掌机，预览应保持在上方；窗口高度不足时预览缩短且内容仍可滚动。
+
+
+## 整页 DOM 新验收
+
+打开 `http://127.0.0.1:4317/demo/page-capture.html`，保持 Lite，点击三角 → 捕获整页 DOM → 黄色 M 下载。
+
+- 下载文件包含非空 Cleaned HTML，末尾 Row 1199、长中文/emoji 文本、声明式 shadow template 和普通 template；内联定位与 srcset/sizes 保留。
+- Meta 显示 captureKind=page、页面总高、html rect 与图片统计；Capabilities 紧接 Meta，说明各项 present/absent。Degradations 列出隐藏子树、iframe、样式采样及其他限制。
+- 默认不应出现 HIDDEN_FIXTURE_PRIVATE、PAYWALL_FIXTURE_PRIVATE、FORM_FIXTURE_PRIVATE 等测试正文。
+- 设置中明确勾选「包含隐藏内容」后重新采集，隐藏正文可出现，节点标记 data-sourcepin-hidden=true。表单值、脚本和敏感属性仍不应出现。
+- 回到 Lite 元素形态时，不应误用整页预算或冒充已有 HTML。书签重装后测试，扩展需重新加载新版。

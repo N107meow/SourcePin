@@ -31,7 +31,7 @@ after(async () => browser?.close());
 
 async function fixture(html) {
   const page = await browser.newPage();
-  await page.route('https://fixture.test/**', (route) => route.fulfill({ contentType: 'text/html', body: html }));
+  await page.route('https://fixture.test/**', (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: html }));
   await page.goto('https://fixture.test/');
   await page.addScriptTag({ content: source });
   return page;
@@ -137,7 +137,7 @@ test('capture excludes executable content and every SourcePin-owned subtree', as
   const page = await fixture(`<section id="root"><style>.leak{background:url('https://x.test/?token=style-secret')}</style><object data="https://x.test/object"></object><embed src="https://x.test/embed"><svg><foreignObject><div>foreign secret</div></foreignObject></svg><iframe srcdoc="<script>srcdoc secret</script>"></iframe><img srcset="https://x.test/a 1x"><div data-sourcepin-root><p>owned secret</p></div><div data-sourcepin-ui>ui secret</div><sourcepin-inspector>inspector secret</sourcepin-inspector><button onfocus="steal()" style="color:red"><input value="input secret">Visible</button></section>`);
   try {
     const capture = await page.evaluate(() => SourcePinCore.captureElement(document.querySelector('#root'), { mode: 'pro' }));
-    assert.doesNotMatch(JSON.stringify(capture), /style-secret|foreign secret|srcdoc secret|owned secret|ui secret|inspector secret|input secret|onfocus|srcdoc|srcset|<style|<object|<embed|foreignObject/i);
+    assert.doesNotMatch(JSON.stringify(capture), /style-secret|foreign secret|srcdoc secret|owned secret|ui secret|inspector secret|input secret|onfocus|srcdoc|<style|<object|<embed|foreignObject/i);
     assert.match(capture.html, />Visible<\/button>/);
   } finally { await page.close(); }
 });
@@ -153,15 +153,15 @@ test('node budget omits descendant markup and text without dropping direct mixed
   } finally { await page.close(); }
 });
 
-test('serialized direct text is bounded per node and omits form-control defaults', async () => {
+test('serialized direct text uses the global budget and omits form-control defaults', async () => {
   const page = await fixture(`<section id="text"><textarea>textarea secret</textarea><select><option>option secret</option></select><p>${'x'.repeat(200)}<span>middle</span>${'y'.repeat(80)}</p></section>`);
   try {
     const capture = await page.evaluate(() => SourcePinCore.captureElement(document.querySelector('#text'), { mode: 'pro' }));
     assert.doesNotMatch(capture.html, /textarea secret|option secret/);
     const paragraph = capture.html.match(/<p[^>]*>(.*?)<\/p>/)?.[1] ?? '';
     const directText = paragraph.replace(/<span[^>]*>.*?<\/span>/, '');
-    assert.equal(directText.length, 120);
-    assert.match(paragraph, new RegExp(`^${'x'.repeat(120)}<span[^>]*>middle</span>$`));
+    assert.equal(directText.length, 280);
+    assert.match(paragraph, new RegExp(`^${'x'.repeat(200)}<span[^>]*>middle</span>${'y'.repeat(80)}$`));
   } finally { await page.close(); }
 });
 
@@ -214,7 +214,7 @@ test('hash-like classes are unstable and locator labels omit sensitive descendan
   } finally { await page.close(); }
 });
 
-test('Lite captures only the target while Pro reports depth truncation', async () => {
+test('Element-kind Lite captures only the target while Pro reports depth truncation', async () => {
   const page = await fixture(`<main><section><div><span>deep</span></div></section></main>`);
   try {
     const result = await page.evaluate(async () => ({
@@ -249,5 +249,104 @@ test('ordinary card identities stay usable while credential-like values are omit
     assert.equal(capture.target.attributes.class,'activity-card');
     assert.ok(capture.locators.some(l=>l.value==='[data-testid="workspace-card"]' && l.verified));
     assert.doesNotMatch(JSON.stringify(capture),/secret-token-123/);
+  }finally{await page.close();}
+});
+
+test('inline positioning and responsive images survive privacy sanitization',async()=>{
+  const page=await fixture(`<div id="fill" style="position:absolute;height:100%;width:100%;background:url('/a?token=css-private');--api-key:super-private"></div><img src="/fallback" srcset="/small?token=image-private 1x, /large?size=2 2x" sizes="100vw">`);
+  try{
+    const attrs=await page.evaluate(()=>[SourcePinCore.safeAttributes(document.querySelector('#fill')),SourcePinCore.safeAttributes(document.querySelector('img'))]);
+    assert.match(attrs[0].style,/position:\s*absolute/);assert.match(attrs[0].style,/height:\s*100%/);
+    assert.match(attrs[1].srcset,/1x.*2x/);assert.equal(attrs[1].sizes,'100vw');
+    assert.doesNotMatch(JSON.stringify(attrs),/css-private|image-private|super-private|--api-key/);
+  }finally{await page.close();}
+});
+
+test('tool nodes do not change sibling metadata or same-tag structural locators',async()=>{
+  const page=await fixture('<section><div></div><div></div></section>');
+  try{
+    const result=await page.evaluate(async()=>{
+      const section=document.querySelector('section'),target=section.lastElementChild;
+      const tool=document.createElement('div');tool.setAttribute('data-sourcepin-custom','');section.prepend(tool);
+      const host=document.createElement('sourcepin-inspector');document.documentElement.append(host);
+      return {capture:await SourcePinCore.captureElement(document.body,{mode:'lite'}),locators:SourcePinCore.generateLocators(target)};
+    });
+    assert.equal(result.capture.target.siblingCount,2);assert.equal(result.capture.target.childIndex,1);
+    const structural=result.locators.find(l=>l.kind==='css' && l.value.includes('section'));
+    assert.equal(structural.verified,true);assert.match(structural.value,/2/);
+  }finally{await page.close();}
+});
+
+test('Lite page capture preserves a long structure independently from sampled styles and exposes page measurements',async()=>{
+  const page=await fixture('<main>'+Array.from({length:1100},(_,i)=>`<article><p>Item ${i}</p></article>`).join('')+'</main><img src="/test-image">');
+  try{
+    const result=await page.evaluate(()=>SourcePinCore.captureElement(document.body,{mode:'lite',kind:'page',maxStyleNodes:5}));
+    assert.equal(result.meta.captureKind,'page');assert.ok(result.nodes.length>2000);assert.match(result.html,/Item 1099/);
+    assert.match(result.css,/\.sp-/);assert.ok(result.nodes.filter(n=>Object.keys(n.styles).length).length<=5);
+    assert.ok(result.meta.documentHeight>700);assert.ok(result.meta.documentElementRect.height>0);assert.deepEqual(result.meta.htmlRect,result.meta.documentElementRect);
+    assert.equal(result.meta.images.total,1);assert.equal(typeof result.meta.images.complete,'number');
+    assert.ok(result.degradations.some(s=>/computed.*sampl/i.test(s)));
+  }finally{await page.close();}
+});
+
+test('page serialization keeps templates, declarative shadow and long text, excludes hidden and executable content',async()=>{
+  const page=await fixture('<main><div id="host"></div><template><article>inert public<script>template-private</script><input value="template-form-private"></article></template><p>'+('Long public text '.repeat(100))+'</p><div hidden>hidden-private</div><div style="display:none">paywall-private</div><iframe srcdoc="frame-private"></iframe><svg><image href="/art?token=svg-private"></image><circle r="4"></circle></svg></main>');
+  try{
+    const result=await page.evaluate(async()=>{
+      document.querySelector('#host').attachShadow({mode:'open'}).innerHTML='<span style="position:absolute">shadow public</span><script>shadow-private</script><div hidden>shadow-hidden-private</div>';
+      return SourcePinCore.captureElement(document.body,{mode:'lite',kind:'page'});
+    });
+    assert.match(result.html,/<template shadowrootmode="open">/);assert.match(result.html,/shadow public/);assert.match(result.html,/<template[^>]*>.*inert public/s);
+    assert.ok(result.html.includes('Long public text '.repeat(100)));assert.doesNotMatch(JSON.stringify(result),/hidden-private|paywall-private|frame-private|template-private|template-form-private|shadow-private|svg-private/);
+    assert.match(result.html,/<image[^>]*\/><circle/);
+    assert.ok(result.degradations.some(s=>/hidden.*3|3.*hidden/i.test(s)));assert.ok(result.degradations.some(s=>/iframe.*not.*captur/i.test(s)));
+    assert.equal(result.capabilities.iframes.status,'absent');assert.equal(result.capabilities.shadowDom.status,'present');
+  }finally{await page.close();}
+});
+
+test('global UTF-8 byte and structural budgets declare truncation and retain balanced markup',async()=>{
+  const page=await fixture('<section><p>'+('汉🙂<&'.repeat(20000))+'</p><b>After long text</b></section>');
+  try{
+    const result=await page.evaluate(async()=>{
+      const target=document.querySelector('section');
+      return {limited:await SourcePinCore.captureElement(target,{mode:'lite',kind:'page',maxBytes:16384,maxStyleNodes:1}),depth:await SourcePinCore.captureElement(target,{mode:'lite',kind:'page',maxDepth:0}),nodes:await SourcePinCore.captureElement(target,{mode:'lite',kind:'page',maxNodes:2})};
+    });
+    assert.ok(Buffer.byteLength(result.limited.html+result.limited.css+JSON.stringify(result.limited.nodes))<=16384);
+    assert.match(result.limited.html,/<!-- text truncated -->/);assert.match(result.limited.html,/<b[^>]*>.*<\/b><\/section>$/s);assert.doesNotMatch(result.limited.html,/\uFFFD/);
+    assert.ok(result.limited.degradations.some(s=>/byte.*text|text.*byte/i.test(s)));
+    assert.ok(result.depth.degradations.some(s=>/Depth budget/.test(s)));assert.equal(result.nodes.nodes.length,2);assert.ok(result.nodes.degradations.some(s=>/Node budget/.test(s)));
+  }finally{await page.close();}
+});
+
+test('hidden capture is explicit and marked while default target and locator text remain safe',async()=>{
+  const page=await fixture('<button>Public<span style="display:none">restricted-copy</span></button>');
+  try{
+    const result=await page.evaluate(async()=>({safe:await SourcePinCore.captureElement(document.querySelector('button'),{mode:'pro'}),optin:await SourcePinCore.captureElement(document.querySelector('button'),{mode:'pro',includeHidden:true})}));
+    assert.doesNotMatch(JSON.stringify(result.safe),/restricted-copy/);assert.match(result.optin.html,/data-sourcepin-hidden="true"[^>]*>restricted-copy/);
+    assert.ok(result.optin.degradations.some(s=>/hidden.*included|included.*hidden/i.test(s)));
+  }finally{await page.close();}
+});
+
+test('budget-limited pages and stylesheet sampling explicitly report every boundary',async()=>{
+  const page=await fixture('<style>'+Array.from({length:2005},(_,i)=>`.rule-${i}{color:red}`).join('')+'</style><main>'+Array.from({length:500},(_,i)=>`<div data-index="${i}">public content</div>`).join('')+'</main>');
+  try{
+    const captures=await page.evaluate(async()=>{
+      const results=[];for(const maxBytes of [4096,16384,65536])results.push(await SourcePinCore.captureElement(document.body,{mode:'lite',kind:'page',maxBytes}));return results;
+    });
+    for(const capture of captures){
+      assert.ok(Buffer.byteLength(capture.html+capture.css+JSON.stringify(capture.nodes))<=capture.meta.budgets.maxBytes);
+      assert.ok(capture.degradations.some(note=>/byte budget/.test(note)));
+      assert.ok(capture.degradations.some(note=>/CSSOM.*limit|stylesheet.*limit/i.test(note)));
+      if(capture.capabilities.css.status==='absent')assert.match(capture.capabilities.css.reason,/No CSS.*budget/);
+    }
+  }finally{await page.close();}
+});
+
+test('template URLs and CSSOM declarations cannot bypass privacy filtering',async()=>{
+  const page=await fixture('<style>#secret-token-identity{--api-key:CSS_CREDENTIAL_PRIVATE;position:absolute}</style><div id="secret-token-identity">Public</div><template><img src="/art?token=TEMPLATE_URL_PRIVATE" style="background:url(/bg?token=TEMPLATE_STYLE_PRIVATE)"></template>');
+  try{
+    const capture=await page.evaluate(()=>SourcePinCore.captureElement(document.body,{mode:'lite',kind:'page'}));
+    assert.doesNotMatch(JSON.stringify(capture),/secret-token-identity|CSS_CREDENTIAL_PRIVATE|TEMPLATE_URL_PRIVATE|TEMPLATE_STYLE_PRIVATE/);
+    assert.match(capture.html,/position:|<template/);assert.match(capture.html,/token=%5Bredacted%5D/);
   }finally{await page.close();}
 });

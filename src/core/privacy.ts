@@ -1,3 +1,4 @@
+import { excluded, parentElementOrHost, hiddenByStyle } from './dom';
 const SENSITIVE_NAME = /(?:pass(?:word)?|secret|token|auth|session|cookie|csrf|credit|card|cvv|cvc|api[-_]?key|private[-_]?key)/i;
 // Field names such as "card" are sensitive; ordinary identity values such as
 // "workspace-card" are not credentials and must remain usable as locators.
@@ -5,7 +6,7 @@ const SENSITIVE_VALUE = /(?:pass(?:word)?|secret|token|bearer|csrf|api[-_]?key|p
 const EVENT_NAME = /^on/i;
 const EXECUTABLE_URL = /^(?:javascript|data\s*:\s*text\/html)/i;
 const URL_ATTRIBUTES = new Set(['href', 'src', 'action', 'formaction', 'poster', 'cite', 'background']);
-const OMIT_ATTRIBUTES = new Set(['value', 'srcdoc', 'nonce', 'integrity', 'style', 'srcset']);
+const OMIT_ATTRIBUTES = new Set(['value', 'srcdoc', 'nonce', 'integrity']);
 const PRIVATE_CONTENT = 'script, style, noscript, template, object, embed, foreignObject, input, textarea, select, option, sourcepin-inspector, [data-sourcepin-root], [data-sourcepin-ui]';
 
 function sanitizeUrl(value: string, base: string): string {
@@ -21,20 +22,22 @@ function sanitizeUrl(value: string, base: string): string {
     url.password = '';
     return url.href;
   } catch {
-    return trimmed.slice(0, 500);
+    return '';
   }
 }
 
-export function safeAttributes(element: Element): Record<string, string> {
+export function safeAttributes(element: Element, base = element.ownerDocument.baseURI): Record<string, string> {
   const result: Record<string, string> = {};
   for (const attribute of [...element.attributes]) {
     const name = attribute.name.toLowerCase();
-    if (EVENT_NAME.test(name) || OMIT_ATTRIBUTES.has(name) || SENSITIVE_NAME.test(name) || name.startsWith('data-sourcepin')) continue;
+    if (!/^[a-z_:][a-z0-9_.:-]*$/i.test(name) || EVENT_NAME.test(name) || OMIT_ATTRIBUTES.has(name) || SENSITIVE_NAME.test(name) || name.startsWith('data-sourcepin')) continue;
     let value = attribute.value;
     if (SENSITIVE_VALUE.test(value) && (name.startsWith('data-') || name.startsWith('aria-') || ['id','class','name'].includes(name))) continue;
-    if (URL_ATTRIBUTES.has(name)) value = sanitizeUrl(value, element.ownerDocument.baseURI);
-    if (!value && URL_ATTRIBUTES.has(name)) continue;
-    result[name] = value.slice(0, 1000);
+    if (name === 'style') value = safeDeclarations((element as HTMLElement | SVGElement).style, base);
+    else if (name === 'srcset') value = safeSrcset(value, base);
+    else if (URL_ATTRIBUTES.has(name) || name === 'xlink:href') value = sanitizeUrl(value, base);
+    if (!value && (URL_ATTRIBUTES.has(name) || ['style','srcset','xlink:href'].includes(name))) continue;
+    result[name] = ['style','srcset','sizes'].includes(name) ? value : value.slice(0, 1000);
   }
   return result;
 }
@@ -43,15 +46,20 @@ export function safeDocumentUrl(value: string): string {
   return sanitizeUrl(value, value);
 }
 
-export function safeText(element: Element, limit = 120): string {
-  if (element.matches(PRIVATE_CONTENT)) return '';
+export function safeText(element: Element, limit = 120, includeHidden = false): string {
+  if (element.matches(PRIVATE_CONTENT) || excluded(element)) return '';
+  if (!includeHidden) for(let current: Element | null = element; current; current = parentElementOrHost(current)) if(hiddenByStyle(current)) return '';
   const walker = element.ownerDocument.createTreeWalker(element, 4);
   const parts: string[] = [];
   let textNode: Node | null;
   while ((textNode = walker.nextNode())) {
     const parent = textNode.parentElement;
     const privateParent = parent?.closest(PRIVATE_CONTENT);
-    if (!privateParent || !element.contains(privateParent)) parts.push(textNode.textContent ?? '');
+    let blocked = !!privateParent && element.contains(privateParent);
+    for(let current: Element | null=parent; current && current!==element; current=parentElementOrHost(current)) {
+      if(excluded(current) || (!includeHidden && hiddenByStyle(current))) {blocked=true;break;}
+    }
+    if (!blocked) parts.push(textNode.textContent ?? '');
     if (parts.join(' ').length >= limit * 2) break;
   }
   return parts.join(' ').replace(/\s+/g, ' ').trim().slice(0, limit);
@@ -67,4 +75,22 @@ export function safeStyleValue(value: string, base: string): string {
     const url = safeAssetUrl(raw, base);
     return url ? `url(${quote}${url}${quote})` : 'none';
   });
+}
+
+
+export function safeDeclarations(style: CSSStyleDeclaration | undefined, base: string): string {
+  if (!style) return '';
+  return [...style].flatMap(property => {
+    const value = safeStyleValue(style.getPropertyValue(property), base);
+    if (SENSITIVE_NAME.test(property) || SENSITIVE_VALUE.test(value.replace(/url\([^)]*\)/gi, '')) || /expression\s*\(|-moz-binding|behavior\s*:/i.test(value)) return [];
+    return [`${property}: ${value}${style.getPropertyPriority(property) ? ' !important' : ''};`];
+  }).join(' ');
+}
+function safeSrcset(value: string, base: string): string {
+  return value.split(',').flatMap(candidate => {
+    const parts=candidate.trim().split(/\s+/);
+    if(parts.length>2 || (parts[1] && !/^(?:\d+(?:\.\d+)?x|\d+w)$/.test(parts[1]))) return [];
+    const url=safeAssetUrl(parts[0],base);
+    return url ? [`${url}${parts[1] ? ' '+parts[1] : ''}`] : [];
+  }).join(', ');
 }

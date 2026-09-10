@@ -1,6 +1,7 @@
 import type { Asset, Capture, CaptureOptions, NodeSnapshot, Rect, Styles } from '../types';
+import { excluded, visibleChildren, hiddenByStyle, parentElementOrHost } from './dom';
 import { generateLocators } from './locators';
-import { safeAssetUrl, safeAttributes, safeDocumentUrl, safeStyleValue, safeText } from './privacy';
+import { safeAssetUrl, safeAttributes, safeDeclarations, safeDocumentUrl, safeStyleValue, safeText } from './privacy';
 
 const STYLE_PROPERTIES = [
   'display','position','inset','top','right','bottom','left','z-index','overflow','overflow-x','overflow-y',
@@ -16,13 +17,7 @@ const STYLE_PROPERTIES = [
   'transition','transition-property','transition-duration','transition-delay','transition-timing-function',
 ] as const;
 
-const VOID = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
-const EXCLUDED = 'script, style, noscript, template, object, embed, foreignObject, sourcepin-inspector, [data-sourcepin-root], [data-sourcepin-ui]';
-
-function excluded(element: Element): boolean {
-  return element.matches(EXCLUDED);
-}
-
+import { serialize, byteLength, markupTags, directTextNodes, contentNodes, nodeCss } from './serialize';
 function abort(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException('Capture aborted', 'AbortError');
 }
@@ -68,24 +63,28 @@ function isVisible(element: Element): boolean {
   return rect.width > 0 && rect.height > 0;
 }
 
-function collectCssom(document: Document, snapshots: Map<Element, NodeSnapshot>): { rules: Map<string, string[]>; keyframes: string[]; inaccessible: boolean } {
+function collectCssom(document: Document, snapshots: Map<Element, NodeSnapshot>): { rules: Map<string, string[]>; keyframes: string[]; inaccessible: boolean; limited: boolean } {
   const rules = new Map<string, string[]>();
   const keyframes: string[] = [];
   let inaccessible = false;
-  let visited = 0;
+  let visited = 0, limited = false;
   const visit = (list: CSSRuleList) => {
     for (const rule of [...list]) {
-      if (visited++ >= 2000) return;
+      if (visited++ >= 2000) {limited=true;return;}
       const nested = (rule as CSSGroupingRule).cssRules;
       if (rule.type === 7) {
-        keyframes.push(safeStyleValue(rule.cssText, document.baseURI).slice(0, 8000));
+        if(rule.cssText.length>8000)limited=true;
+        const frames=rule as CSSKeyframesRule;
+        const serialized=`@keyframes ${frames.name}{${[...frames.cssRules].map(frame=>`${(frame as CSSKeyframeRule).keyText}{${safeDeclarations((frame as CSSKeyframeRule).style,document.baseURI)}}`).join('')}}`;
+        if(serialized.length<=8000)keyframes.push(serialized);
       } else if (rule.type === 1) {
         const styleRule = rule as CSSStyleRule;
         for (const [element, snapshot] of snapshots) {
           try {
             if (element.matches(styleRule.selectorText)) {
               const entries = rules.get(snapshot.key) ?? [];
-              if (entries.length < 20) entries.push(`${styleRule.selectorText}{${safeStyleValue(styleRule.style.cssText, document.baseURI)}}`);
+              if (entries.length >= 20)limited=true;
+              if (entries.length < 20) entries.push(`.${snapshot.key}{${safeDeclarations(styleRule.style, document.baseURI)}}`);
               rules.set(snapshot.key, entries);
             }
           } catch { /* selector unsupported by matches() */ }
@@ -94,10 +93,10 @@ function collectCssom(document: Document, snapshots: Map<Element, NodeSnapshot>)
     }
   };
   for (const sheet of [...document.styleSheets]) {
-    if (visited >= 2000) break;
+    if (visited >= 2000) {limited=true;break;}
     try { if (sheet.cssRules) visit(sheet.cssRules); } catch { inaccessible = true; }
   }
-  return { rules, keyframes, inaccessible };
+  return { rules, keyframes, inaccessible, limited };
 }
 
 function collectAnimations(root: Element, snapshots: Map<Element, NodeSnapshot>): unknown[] {
@@ -106,6 +105,7 @@ function collectAnimations(root: Element, snapshots: Map<Element, NodeSnapshot>)
     for (const animation of root.getAnimations({ subtree: true }).slice(0, 100)) {
       const effect = animation.effect as KeyframeEffect | null;
       const target = effect?.target && effect.target.nodeType === Node.ELEMENT_NODE ? snapshots.get(effect.target as Element) : undefined;
+      if(!target)continue;
       animations.push({
         target: target?.key ?? null,
         id: animation.id || undefined,
@@ -145,33 +145,6 @@ function reachPath(element: Element): string[] {
 function safeLabel(element: Element): string {
   const id = safeAttributes(element).id;
   return element.localName + (id ? `#${id}` : '');
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]!);
-}
-
-function serialize(root: Element, snapshots: Map<Element, NodeSnapshot>): string {
-  const visit = (element: Element): string => {
-    const node = snapshots.get(element);
-    if (!node) return '';
-    const attributes = { ...node.attributes, class: [node.attributes.class, node.key].filter(Boolean).join(' ') };
-    let output = `<${node.tag}${Object.entries(attributes).map(([name, value]) => ` ${name}="${escapeHtml(value)}"`).join('')}>`;
-    if (!VOID.has(node.tag)) {
-      let remainingText = 120;
-      const suppressText = element.matches('textarea, select, option');
-      for (const child of [...element.childNodes]) {
-        if (child.nodeType === 3 && !suppressText && remainingText > 0) {
-          const text = (child.textContent ?? '').slice(0, remainingText);
-          remainingText -= text.length;
-          output += escapeHtml(text);
-        } else if (child.nodeType === 1) output += visit(child as Element);
-      }
-      output += `</${node.tag}>`;
-    }
-    return output;
-  };
-  return visit(root);
 }
 
 function tokens(nodes: NodeSnapshot[]): Record<string, string[]> {
@@ -214,56 +187,108 @@ function nextFrame(): Promise<void> {
 export async function captureElement(element: Element, options: CaptureOptions): Promise<Capture> {
   abort(options.signal);
   if (!element.isConnected) throw new DOMException('Target is detached', 'InvalidStateError');
-  const maxNodes = boundedInteger(options.maxNodes, 300, 1, 1000);
-  const maxDepth = boundedInteger(options.maxDepth, 6, 0, 20);
-  const nodes: NodeSnapshot[] = [];
-  const snapshots = new Map<Element, NodeSnapshot>();
-  const assets: Asset[] = [];
-  const pending: Array<{ element: Element; depth: number; parentKey: string }> = [{ element, depth: 0, parentKey: 'sp' }];
-  while (pending.length && nodes.length < maxNodes) {
+  const kind=options.kind ?? 'element', full=kind==='page' || options.mode==='pro';
+  const maxNodes=boundedInteger(options.maxNodes,kind==='page'?20000:300,1,kind==='page'?100000:1000);
+  const maxDepth=boundedInteger(options.maxDepth,kind==='page'?40:6,0,kind==='page'?100:20);
+  const maxBytes=boundedInteger(options.maxBytes,2*1024*1024,4096,8*1024*1024);
+  const maxStyleNodes=boundedInteger(options.maxStyleNodes,kind==='page'?120:maxNodes,0,maxNodes);
+  const document=element.ownerDocument,view=document.defaultView!;
+  const snapshots=new Map<Element,NodeSnapshot>(), sampled=new Map<Element,NodeSnapshot>();
+  const nodes: NodeSnapshot[]=[], assets: Asset[]=[], degradations: string[]=[];
+  let hiddenExcluded=0,hiddenIncluded=0,filtered=0,attributeFiltered=0,depthLimited=false,byteLimited=false;
+  let structureBytes=2,styleBytes=0,shadowCount=0,iframeCount=0;
+  const signatures=new Set<string>();
+  const pending: Array<{element:Element;depth:number;hidden:boolean}>= [{element,depth:0,hidden:false}];
+  let ancestorHidden=false;
+  for(let parent=parentElementOrHost(element);parent;parent=parentElementOrHost(parent))ancestorHidden ||= hiddenByStyle(parent);
+  while(pending.length && nodes.length<maxNodes){
     abort(options.signal);
-    const current = pending.pop()!;
-    if (excluded(current.element)) continue;
-    const key = `${current.parentKey}-${nodes.length}`;
-    const styles = sampleStyles(current.element);
-    const snapshot = { key, depth: current.depth, tag: current.element.localName, attributes: safeAttributes(current.element), text: safeText(current.element), styles, rect: rectOf(current.element), pseudo: pseudoStyles(current.element) };
-    nodes.push(snapshot);
-    snapshots.set(current.element, snapshot);
-    for (const asset of collectAssets(current.element, styles)) if (!assets.some((candidate) => candidate.url === asset.url)) assets.push(asset);
-    if (options.mode === 'pro' && current.depth < maxDepth) {
-      const children = [...current.element.children];
-      for (let index = children.length - 1; index >= 0; index--) pending.push({ element: children[index], depth: current.depth + 1, parentKey: key });
+    const current=pending.pop()!,el=current.element;
+    if(excluded(el)){filtered++;continue;}
+    const hidden=current.hidden || (current.depth===0 && ancestorHidden) || hiddenByStyle(el);
+    if(hidden && !options.includeHidden){hiddenExcluded++;continue;}
+    if(hidden)hiddenIncluded++;
+    const attributes=safeAttributes(el,document.baseURI);
+    attributeFiltered += [...el.attributes].filter(attr=>!(attr.name in attributes) || attributes[attr.name]!==attr.value).length;
+    if(hidden)attributes['data-sourcepin-hidden']='true';
+    const key=`sp-${nodes.length}`;
+    const text=directTextNodes(el).map(node=>node.data).join('').replace(/\s+/g,' ').trim().slice(0,120);
+    const snapshot: NodeSnapshot={key,depth:current.depth,tag:el.localName,attributes,text,styles:{},rect:rectOf(el),pseudo:{}};
+    const signature=el.localName+'.'+(attributes.class ?? '');
+    const representative=current.depth<=3 || !signatures.has(signature);
+    signatures.add(signature);
+    if(sampled.size<maxStyleNodes && (kind!=='page' || representative)){
+      const styles=sampleStyles(el),pseudo=pseudoStyles(el);
+      const cost=byteLength(JSON.stringify({styles,pseudo}))*2;
+      if(styleBytes+cost<=maxBytes/4){snapshot.styles=styles;snapshot.pseudo=pseudo;styleBytes+=cost;}
     }
-    if (nodes.length % 25 === 0) await nextFrame();
+    // Reserve HTML skeleton, direct-text markers and per-node CSS before text.
+    // JSON nodes + HTML + CSS share this byte ceiling; metadata is separate.
+    const hasShadow=!!el.shadowRoot;
+    const cost=byteLength(JSON.stringify(snapshot))+1+byteLength(markupTags(snapshot).join(''))+directTextNodes(el).length*23+byteLength(nodeCss(snapshot))*2+(hasShadow?80:0);
+    if(structureBytes+cost>maxBytes-1024){byteLimited=true;break;}
+    structureBytes+=cost;nodes.push(snapshot);snapshots.set(el,snapshot);
+    if(Object.keys(snapshot.styles).length)sampled.set(el,snapshot);
+    if(hasShadow)shadowCount++;
+    if(el.localName==='iframe')iframeCount++;
+    for(const asset of collectAssets(el,snapshot.styles))if(!assets.some(candidate=>candidate.url===asset.url))assets.push(asset);
+    if(full){
+      const children=[...contentNodes(el).filter(child=>child.nodeType===1) as Element[],...el.shadowRoot?.children ?? []];
+      if(current.depth<maxDepth)for(let i=children.length-1;i>=0;i--)pending.push({element:children[i],depth:current.depth+1,hidden});
+      else if(children.some(child=>!excluded(child)))depthLimited=true;
+    }
+    if(nodes.length%100===0)await nextFrame();
   }
   abort(options.signal);
-  const document = element.ownerDocument;
-  const view = document.defaultView!;
-  const rect = rectOf(element);
-  const ancestors: string[] = [];
-  for (let parent = element.parentElement; parent && ancestors.length < 3; parent = parent.parentElement) ancestors.push(safeLabel(parent));
-  const cssom = options.mode === 'pro' ? collectCssom(document, snapshots) : { rules: new Map<string, string[]>(), keyframes: [], inaccessible: false };
-  const css = options.mode === 'pro' ? nodes.map((node) => {
-    const base = `.${node.key}{${Object.entries(node.styles).map(([property, value]) => `${property}:${value};`).join('')}}`;
-    const pseudo = Object.entries(node.pseudo).map(([selector, styles]) => `.${node.key}${selector}{${Object.entries(styles).map(([property, value]) => `${property}:${value};`).join('')}}`).join('');
-    const sourceRules = (cssom.rules.get(node.key) ?? []).map((rule) => `/* matched CSSOM: ${rule} */`).join('');
-    return sourceRules + base + pseudo;
-  }).join('\n') + (cssom.keyframes.length ? `\n${cssom.keyframes.join('\n')}` : '') : '';
-  const animations = options.mode === 'pro' ? [...collectAnimations(element, snapshots), ...cssom.keyframes.map((cssText) => ({ kind: 'css-keyframes', cssText }))] : [];
-  const degradations: string[] = [];
-  if (pending.some(({ element: queued }) => !excluded(queued))) degradations.push(`Node budget reached (${maxNodes}); remaining descendants omitted.`);
-  if (options.mode === 'pro' && [...snapshots.keys()].some((node) => snapshots.get(node)!.depth === maxDepth && [...node.children].some((child) => !excluded(child)))) degradations.push(`Depth budget reached (${maxDepth}); deeper descendants omitted.`);
-  if (element.localName === 'canvas') degradations.push('Canvas pixels and rendering context were not inspected.');
-  if (!document.styleSheets.length) degradations.push('No readable stylesheet source was available; scoped CSS uses computed styles.');
-  if (cssom.inaccessible) degradations.push('One or more stylesheets were inaccessible; scoped CSS uses computed styles for affected rules.');
-  if (options.mode === 'lite') degradations.push('Framework metadata is unavailable without a platform adapter.');
-  const siblings = element.parentElement ? [...element.parentElement.children] : [element];
+  const cssom=full ? collectCssom(document,sampled) : {rules:new Map<string,string[]>(),keyframes:[],inaccessible:false,limited:false};
+  const baseCss=full?nodes.map(nodeCss).filter(Boolean).join('\n'):'';
+  // Source rules are supplementary evidence. Bound them separately so they
+  // cannot consume the structure/text allowance or turn sampling quadratic.
+  const sourceCss=full?[...cssom.rules.values()].flat().map(rule=>`/* matched CSSOM: ${rule.replaceAll('*/','* /')} */`).join('\n'):'';
+  let css=baseCss;
+  const supplemental=sourceCss+'\n'+cssom.keyframes.join('\n');
+  if(full && byteLength(supplemental)<=Math.min(32768,Math.max(0,maxBytes-structureBytes-1024)))css+='\n'+supplemental;
+  else if(full && supplemental.trim())degradations.push('CSS source byte budget reached; supplementary CSSOM rules/keyframes omitted.');
+  const markup=full?serialize(element,snapshots,maxBytes-byteLength(css)-byteLength(JSON.stringify(nodes))):{html:'',truncatedText:0};
+  const rect=rectOf(element),htmlRect=rectOf(document.documentElement);
+  const ancestors: string[]=[];
+  for(let parent=element.parentElement;parent && ancestors.length<3;parent=parent.parentElement)ancestors.push(safeLabel(parent));
+  if(pending.length && !byteLimited)degradations.push(`Node budget reached (${maxNodes}); remaining descendants omitted.`);
+  if(depthLimited)degradations.push(`Depth budget reached (${maxDepth}); deeper descendants omitted.`);
+  if(byteLimited)degradations.push(`Structure byte budget reached (${maxBytes}); remaining descendants omitted.`);
+  if(markup.truncatedText)degradations.push(`Global text byte budget reached (${maxBytes} bytes shared by nodes/HTML/CSS); ${markup.truncatedText} text nodes truncated with visible markers.`);
+  degradations.push('Target and Structure text fields are summaries (up to 120 characters); full eligible text is in Cleaned HTML, subject to the global byte budget.');
+  if(hiddenExcluded)degradations.push(`${hiddenExcluded} hidden subtrees excluded by default; their content was not captured.`);
+  if(hiddenIncluded)degradations.push(`${hiddenIncluded} hidden nodes included by explicit opt-in and marked data-sourcepin-hidden.`);
+  if(filtered)degradations.push(`${filtered} executable, private or tool subtrees filtered; content not captured.`);
+  if(attributeFiltered)degradations.push(`${attributeFiltered} attributes filtered, normalized or redacted (including form values, event handlers and sensitive URL parameters).`);
+  if([...snapshots.keys()].some(el=>el.matches('input,textarea,select,option')))degradations.push('Form values and control text were excluded.');
+  if([...snapshots.keys()].some(el=>el.localName==='template'))degradations.push('Template contents retained as inert markup; computed layout is unavailable until instantiated.');
+  if([...snapshots.keys()].some(el=>el.localName==='canvas'))degradations.push('Canvas pixels and rendering context were not inspected.');
+  if(full && sampled.size<nodes.length)degradations.push(`Computed styles sampled for ${sampled.size}/${nodes.length} nodes; unsampled computed/pseudo styles are absent. Inline styles remain when safe.`);
+  if(full && !document.styleSheets.length)degradations.push('No readable stylesheet source was available; scoped CSS uses computed styles.');
+  if(cssom.limited)degradations.push('CSSOM sampling limit reached (2000 rules, 20 matches per sampled node, 8000 characters per keyframe); remaining source rules omitted.');
+  if(full)degradations.push('Animations sampled at most 100 animations and 100 keyframes per animation; unobserved interactions and server behavior remain unknown.');
+  if(cssom.inaccessible)degradations.push('One or more stylesheets were inaccessible; scoped CSS uses sampled computed styles for affected rules.');
+  const siblings=element.parentElement?visibleChildren(element.parentElement):[element];
+  const images=[...document.images].filter(img=>!excluded(img) && !img.closest('sourcepin-inspector,[data-sourcepin-root]'));
+  const capabilities: Capture['capabilities']={
+    markup:{status:markup.html?'present':'absent',reason:full?(markup.html?'Sanitized markup; see budgets and filtering below.':'No eligible markup within capture policy/budget.'):'Lite element capture does not collect markup (Lite 元素形态).'},
+    css:{status:css.trim()?'present':'absent',reason:full?(css.trim()?'Scoped sampled styles; not a complete stylesheet archive.':'No CSS available within the independent style sampling/source budget.'):'Lite element capture does not serialize CSS.'},
+    computedStyles:{status:sampled.size?'present':'absent',count:sampled.size,total:nodes.length,reason:`Sampled ${sampled.size}/${nodes.length} nodes; independent style budget ${maxStyleNodes}.`},
+    recording:{status:'absent',reason:'No interaction recording is attached to this capture.'},
+    framework:{status:'absent',reason:'Framework metadata requires a platform adapter; not collected by the DOM core.'},
+    screenshot:{status:'absent',reason:'No screenshot is embedded; screenshots are a separate explicit operation.'},
+    shadowDom:{status:full && shadowCount?'present':'absent',count:shadowCount,reason:full?`${shadowCount} open shadow roots serialized as declarative templates; closed roots cannot be inspected.`:'Shadow subtrees are not serialized in Lite element capture; closed roots cannot be inspected.'},
+    iframes:{status:'absent',count:iframeCount,reason:`${iframeCount} iframe placeholders; iframe content was not captured (same-origin or cross-origin).`},
+    hiddenContent:{status:hiddenIncluded?'present':'absent',count:options.includeHidden?hiddenIncluded:hiddenExcluded,reason:options.includeHidden?'Explicit opt-in: included hidden nodes are marked.':`${hiddenExcluded} hidden subtrees excluded by default.`},
+  };
+  for(const [name,capability] of Object.entries(capabilities))if(capability.status==='absent')degradations.push(`${name}: absent — ${capability.reason}`);
   return {
-    id: globalThis.crypto?.randomUUID?.() ?? `capture-${Date.now()}`,
-    timestamp: new Date().toISOString(), mode: options.mode,
-    meta: { url: safeDocumentUrl(document.URL), title: document.title, viewport: { width: view.innerWidth, height: view.innerHeight }, dpr: view.devicePixelRatio, scroll: { x: view.scrollX, y: view.scrollY }, reach: reachPath(element) },
-    target: { tag: element.localName, text: safeText(element), attributes: safeAttributes(element), ancestors, childIndex: siblings.indexOf(element), typeIndex: siblings.filter((sibling) => sibling.localName === element.localName).indexOf(element), siblingCount: siblings.length, rect, visible: isVisible(element), inViewport: rect.y + rect.height > 0 && rect.x + rect.width > 0 && rect.y < view.innerHeight && rect.x < view.innerWidth },
-    locators: generateLocators(element), nodes, html: options.mode === 'pro' ? serialize(element, snapshots) : '', css,
-    tokens: tokens(nodes), assets, animations, degradations,
+    id:globalThis.crypto?.randomUUID?.() ?? `capture-${Date.now()}`,timestamp:new Date().toISOString(),mode:options.mode,capabilities,
+    meta:{captureKind:kind,documentHeight:Math.max(document.documentElement.scrollHeight,document.body?.scrollHeight ?? 0),documentElementRect:htmlRect,htmlRect,images:{total:images.length,complete:images.filter(img=>img.complete).length},budgets:{maxNodes,maxDepth,maxBytes,maxStyleNodes},url:safeDocumentUrl(document.URL),title:document.title,viewport:{width:view.innerWidth,height:view.innerHeight},dpr:view.devicePixelRatio,scroll:{x:view.scrollX,y:view.scrollY},reach:reachPath(element)},
+    target:{tag:element.localName,text:safeText(element,120,options.includeHidden),attributes:hiddenExcluded && !nodes.length?{}:safeAttributes(element),ancestors,childIndex:siblings.indexOf(element),typeIndex:siblings.filter(sibling=>sibling.localName===element.localName).indexOf(element),siblingCount:siblings.length,rect,visible:isVisible(element),inViewport:rect.y+rect.height>0 && rect.x+rect.width>0 && rect.y<view.innerHeight && rect.x<view.innerWidth},
+    locators:generateLocators(element),nodes,html:markup.html,css,tokens:tokens(nodes),assets,
+    animations:full?[...collectAnimations(element,sampled),...cssom.keyframes.map(cssText=>({kind:'css-keyframes',cssText}))]:[],degradations,
   };
 }

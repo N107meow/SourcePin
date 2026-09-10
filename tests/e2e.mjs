@@ -151,6 +151,39 @@ try{
   await bookmarkPage.keyboard.press('Escape');assert.equal(await bookmarkRoot.count(),0);
   await bookmarkPage.close();
   results.push('Packaged javascript bookmarklet launches, captures, copies and cleans up');
+  // Real download from a deterministic long page, for both shipping adapters.
+  const pageEvidence=[];
+  for(const adapter of ['extension','bookmarklet']){
+    const whole=await context.newPage();await whole.goto(`${base}/demo/page-capture.html`);
+    whole.on('pageerror',e=>errors.push(e.message));
+    if(adapter==='extension'){
+      await worker.evaluate(()=>chrome.storage.local.set({settings:{mode:'lite',onboardingDone:true}}));
+      const {targetInfos}=await browserCdp.send('Target.getTargets',{filter:[{type:'tab',exclude:false}]});
+      await browserCdp.send('Extensions.triggerAction',{id,targetId:targetInfos.find(info=>info.url===whole.url()).targetId});
+    }else{
+      const bookmark=await readFile('dist/sourcepin.bookmarklet.txt','utf8');
+      await whole.evaluate(code=>{location.href=code},bookmark);
+    }
+    const root=whole.locator('[data-sourcepin-root]');await root.waitFor();
+    const intro=root.locator('[data-action="onboarding-done"]');if(await intro.isVisible())await intro.click();
+    assert.equal(await root.locator('.robot').getAttribute('data-mode'),'lite');
+    await root.locator('[data-action="capture-panel"]').click();await root.locator('[data-action="whole-page"]').click();
+    await whole.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
+    const downloaded=whole.waitForEvent('download');await root.locator('.download').click();
+    const file=await downloaded,path=`artifacts/page-${adapter}.md`;await file.saveAs(path);
+    const report=await readFile(path,'utf8');
+    assert.match(report,/"captureKind": "page"/);assert.match(report,/## Cleaned HTML/);assert.match(report,/Row 1199/);
+    assert.match(report,/shadowrootmode="open"/);assert.match(report,/Template public fixture/);assert.match(report,/position: absolute/);assert.match(report,/srcset=/);
+    assert.doesNotMatch(report,/HIDDEN_FIXTURE_PRIVATE|PAYWALL_FIXTURE_PRIVATE|FRAME_FIXTURE_PRIVATE|FORM_FIXTURE_PRIVATE|TOKEN_FIXTURE_PRIVATE|TEMPLATE_FIXTURE_PRIVATE/);
+    const meta=JSON.parse(report.split('## Meta\n')[1].split('```json\n')[1].split('\n```')[0]);
+    const structure=JSON.parse(report.split('## Structure\n')[1].split('```json\n')[1].split('\n```')[0]);
+    assert.ok(structure.nodes.length>3600);assert.ok(meta.documentHeight>10000);assert.equal(meta.images.total,1);
+    pageEvidence.push({adapter,nodes:structure.nodes.length,bytes:Buffer.byteLength(report),meta});
+    await root.locator('.screen').click();await whole.screenshot({path:`artifacts/page-${adapter}.png`});
+    await whole.keyboard.press('Escape');await whole.keyboard.press('Escape');await whole.close();
+    results.push(`${adapter}: Lite whole-page DOM downloads full sanitized long-page markup with capabilities`);
+  }
+  await writeFile('artifacts/page-capture-results.json',JSON.stringify({timestamp:new Date().toISOString(),captures:pageEvidence},null,2));
   assert.deepEqual(errors,[]);
   await writeFile('artifacts/e2e-results.json',JSON.stringify({timestamp:new Date().toISOString(),chromium:context.browser().version(),node:process.version,platform:process.platform,architecture:process.arch,results,errors},null,2));
   console.log(JSON.stringify({passed:results.length,results},null,2));

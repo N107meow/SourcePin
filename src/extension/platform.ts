@@ -11,8 +11,8 @@ async function request<T>(message: object): Promise<T> {
 export function createExtensionPlatform(): Platform {
   return {
     kind:'extension',
-    async loadSettings(){ const data=await chrome.storage.sync.get('settings'); return normalizeSettings(data.settings); },
-    async saveSettings(settings){ await chrome.storage.sync.set({settings:normalizeSettings(settings)}); },
+    async loadSettings(){ const data=await chrome.storage.local.get('settings'); return normalizeSettings(data.settings); },
+    async saveSettings(settings){ await chrome.storage.local.set({settings:normalizeSettings(settings)}); },
     async copy(text){
       if(!navigator.clipboard?.writeText) throw new Error('当前页面无法写入剪贴板，请下载 Markdown 或在 HTTPS 页面使用。');
       await navigator.clipboard.writeText(text);

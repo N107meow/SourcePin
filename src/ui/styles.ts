@@ -49,6 +49,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .panel-close::before { content: "×"; font-size: 19px; line-height: 18px; }
 .field { display: grid; grid-template-columns: 1fr 110px; align-items: center; gap: 8px; margin: 10px 0; }
 .field input, .field select { min-width: 0; width: 100%; height: 32px; border: 3px solid #1c1008; border-radius: 9px; padding: 3px 7px; background: white; color: #1c1008; }
+.field input[type="checkbox"] { width: 20px; height: 20px; justify-self: end; accent-color: #59ac9d; }
 .panel-actions { display: grid; gap: 8px; }
 .panel-action { min-height: 38px; padding: 7px 11px; border: 3px solid #1c1008; border-radius: 12px; background: #63c9b7; text-align: left; }
 .panel-action.danger { background: #ff3d67; }

@@ -1,3 +1,6 @@
+export type CaptureKind = 'element' | 'page';
+export interface Capability { status: 'present' | 'absent'; reason: string; count?: number; total?: number }
+export type Capabilities = Record<'markup' | 'css' | 'computedStyles' | 'recording' | 'framework' | 'screenshot' | 'shadowDom' | 'iframes' | 'hiddenContent', Capability>;
 export type Mode = 'lite' | 'pro';
 export type Language = 'zh' | 'en';
 export type Styles = Record<string, string>;
@@ -15,19 +18,20 @@ export interface NodeSnapshot {
 export interface Asset { kind: string; url: string; width?: number; height?: number }
 export interface Capture {
   id: string; timestamp: string; mode: Mode;
-  meta: { url: string; title: string; viewport: { width: number; height: number }; dpr: number; scroll: { x: number; y: number }; reach: string[] };
+  capabilities: Capabilities;
+  meta: { captureKind: CaptureKind; documentHeight: number; documentElementRect: Rect; htmlRect: Rect; images: { total: number; complete: number }; budgets: { maxNodes: number; maxDepth: number; maxBytes: number; maxStyleNodes: number }; url: string; title: string; viewport: { width: number; height: number }; dpr: number; scroll: { x: number; y: number }; reach: string[] };
   target: { tag: string; text: string; attributes: Record<string, string>; ancestors: string[]; childIndex: number; typeIndex: number; siblingCount: number; rect: Rect; visible: boolean; inViewport: boolean };
   locators: Locator[]; nodes: NodeSnapshot[]; html: string; css: string;
   tokens: Record<string, string[]>; assets: Asset[]; animations: unknown[];
   framework?: FrameworkInfo; degradations: string[];
 }
-export interface CaptureOptions { mode: Mode; maxNodes?: number; maxDepth?: number; signal?: AbortSignal }
+export interface CaptureOptions { mode: Mode; kind?: CaptureKind; maxNodes?: number; maxDepth?: number; maxBytes?: number; maxStyleNodes?: number; includeHidden?: boolean; signal?: AbortSignal }
 export interface RecordedState { id: string; name: string; at: number; styles: Styles; attributes: Record<string, string>; condition: string }
 export interface Transition { from: string; to: string; event: string; target: string; styleDelta: Styles; changes: string[] }
 export interface Recording { states: RecordedState[]; transitions: Transition[]; degradations: string[] }
 export interface Recorder { stop(): Recording; snapshot(): Recording; dispose(): void }
-export interface Settings { mode: Mode; language: Language; maxNodes: number; maxDepth: number; onboardingDone: boolean }
-export const DEFAULT_SETTINGS: Settings = { mode: 'lite', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: false };
+export interface Settings { mode: Mode; language: Language; maxNodes: number; maxDepth: number; onboardingDone: boolean; includeHidden: boolean }
+export const DEFAULT_SETTINGS: Settings = { mode: 'lite', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: false, includeHidden: false };
 export interface Platform {
   kind: 'extension' | 'bookmarklet' | 'demo';
   loadSettings(): Promise<Settings>; saveSettings(settings: Settings): Promise<void>;

@@ -8,7 +8,7 @@ test('rapid activation cannot let a cancelled startup erase the newer controller
   const browser=await chromium.launch({headless:true});
   try {
     const page=await browser.newPage();await page.setContent('<p>Lifecycle fixture</p>');
-    await page.evaluate(()=>{window.settingsResolvers=[];window.chrome={storage:{sync:{get:()=>new Promise(r=>window.settingsResolvers.push(r))}},runtime:{onMessage:{addListener(){},removeListener(){}}}};});
+    await page.evaluate(()=>{window.settingsResolvers=[];window.chrome={storage:{local:{get:()=>new Promise(r=>window.settingsResolvers.push(r))}},runtime:{onMessage:{addListener(){},removeListener(){}}}};});
     await page.evaluate(code=>{eval(code);eval(code);eval(code);window.newPending=window.__sourcepin;},built.outputFiles[0].text);
     await page.evaluate(()=>window.settingsResolvers[0]({settings:{onboardingDone:true}}));
     assert.equal(await page.evaluate(()=>window.__sourcepin===window.newPending),true);

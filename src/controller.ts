@@ -1,9 +1,10 @@
-import type { Capture, Platform, Rect, Recorder, Recording, Settings, UIState } from './types';
+import type { Capture, CaptureKind, Platform, Rect, Recorder, Recording, Settings, UIState } from './types';
 import { createUI } from './ui/inspector';
 import { captureElement } from './core/capture';
 import { validateLocators } from './core/locators';
 import { createRecorder } from './core/recorder';
 import { renderMarkdown } from './core/markdown';
+import { visibleChildren } from './core/dom';
 import { normalizeSettings } from './platform/policy';
 
 export interface Controller { destroy(): void; download(): void }
@@ -35,6 +36,7 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   let settings: Settings;
   try { settings=normalizeSettings(await platform.loadSettings()); } catch {settings=normalizeSettings({});}
   let selected: Element[]=[];let captures: Capture[]=[];let viewports: Capture[]=[];
+  let captureKind: CaptureKind='element';
   let recorder: Recorder | undefined;let recorded: Recording | undefined;
   let busy=false,copied=false,alive=true,picking=true,hover: Element | null=null;
   let status='指向元素，点击选中';let savedFilename: string | undefined;
@@ -50,13 +52,13 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     repick:()=>resetSelection(),
     settings:(next)=>{
       const previous=settings;settings=normalizeSettings(next);void platform.saveSettings(settings).catch(()=>ui.toast('设置保存失败，本次会话仍然有效'));
-      if(settings.mode!==previous.mode || settings.maxDepth!==previous.maxDepth || settings.maxNodes!==previous.maxNodes){
+      if(settings.mode!==previous.mode || settings.maxDepth!==previous.maxDepth || settings.maxNodes!==previous.maxNodes || settings.includeHidden!==previous.includeHidden){
         recorder?.dispose();recorder=undefined;recorded=undefined;viewports=[];if(selected.length)void captureSelected();
       }
       copied=false;update();
     },
     record:()=>toggleRecording(),screenshot:(component)=>void screenshot(component),
-    wholePage:()=>{recorder?.dispose();recorder=undefined;recorded=undefined;selected=[document.body || document.documentElement];picking=false;void captureSelected();},
+    wholePage:()=>{recorder?.dispose();recorder=undefined;recorded=undefined;selected=[document.body || document.documentElement];captureKind='page';picking=false;hover=null;ui.highlight(null);ui.toast('整页采集：独立 DOM/样式预算，默认排除隐藏内容');void captureSelected();},
     addViewport:()=>{if(captures.length){viewports.push(...captures);if(viewports.length>20)viewports.splice(0,viewports.length-20);void captureSelected(true);}}
   },state(),assetUrl);
   const update=()=>{if(alive)ui.update(state());};
@@ -64,7 +66,7 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   function resetSelection(){
     recorder?.dispose();recorder=undefined;recorded=undefined;
     operation?.abort();busy=false;picking=true;escapeArmed=false;hover=null;
-    selected=[];captures=[];viewports=[];copied=false;savedFilename=undefined;revision++;
+    captureKind='element';selected=[];captures=[];viewports=[];copied=false;savedFilename=undefined;revision++;
     status='指向元素，点击选中';ui.highlight(null);ui.selections([]);update();
   }
 
@@ -80,9 +82,16 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
       for(const [index,el] of targets.entries()){
         // Reserve a root node for each remaining selection.
         const budget=Math.min(settings.maxNodes,remaining-(targets.length-index-1));
-        const snapshot=await captureElement(el,{mode:settings.mode,maxNodes:budget,maxDepth:settings.maxDepth,signal:current.signal});
+        const snapshot=await captureElement(el,{mode:settings.mode,kind:captureKind,...(captureKind==='element'?{maxNodes:budget,maxDepth:settings.maxDepth}:{}),includeHidden:settings.includeHidden,signal:current.signal});
         remaining-=snapshot.nodes.length;
-        if(platform.framework){try{snapshot.framework=await platform.framework(el);}catch{snapshot.degradations.push('框架私有信息读取失败；DOM 定位不受影响。');}}
+        snapshot.degradations=snapshot.degradations.filter(note=>!note.startsWith('framework: absent'));
+        let frameworkReason='Framework metadata is unavailable without a platform adapter.';
+        if(platform.framework){
+          try{snapshot.framework=await platform.framework(el);frameworkReason=snapshot.framework?'Platform adapter returned framework metadata.':'Platform adapter found no framework metadata on this target.';}
+          catch{frameworkReason='Platform framework adapter failed; DOM capture remains available.';}
+        }
+        snapshot.capabilities.framework={status:snapshot.framework?'present':'absent',reason:frameworkReason};
+        if(!snapshot.framework)snapshot.degradations.push(`framework: absent — ${frameworkReason}`);
         next.push(snapshot);
       }
       if(current.signal.aborted || !alive)return;
@@ -153,7 +162,7 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
       if(!picking || !hover?.isConnected || !alive){ui.highlight(null);return;}
       const r=topRect(hover), parent=hover.parentElement;
       const layout=parent ? hover.ownerDocument.defaultView!.getComputedStyle(parent).display:'';
-      ui.highlight(r,`${describe(hover)} · ${Math.round(r.width)} × ${Math.round(r.height)}${layout==='grid' || layout==='flex' ? ` · ${layout} ${[...parent!.children].indexOf(hover)+1}/${parent!.children.length}`:''}`,false);
+      ui.highlight(r,`${describe(hover)} · ${Math.round(r.width)} × ${Math.round(r.height)}${layout==='grid' || layout==='flex' ? ` · ${layout} ${visibleChildren(parent!).indexOf(hover)+1}/${visibleChildren(parent!).length}`:''}`,false);
   }
   function onClick(event: Event){
     if(!picking || !event.isTrusted || ui.contains(event))return;
@@ -164,6 +173,7 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     // That range belongs to this multi-pick gesture, not a text-copy gesture.
     if(mouse.shiftKey)target.ownerDocument.getSelection()?.removeAllRanges();
     recorder?.dispose();recorder=undefined;recorded=undefined;
+    if(captureKind==='page')selected=[];captureKind='element';
     if(mouse.shiftKey){selected=selected.includes(target)?selected.filter(el=>el!==target):[...selected,target].slice(0,10);}
     else selected=[target];
     hover=null;ui.highlight(null);ui.selections(selected.map(topRect));

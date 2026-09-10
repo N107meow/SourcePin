@@ -55,7 +55,7 @@ test('repick cancels an in-flight capture and ignores its late result',async()=>
 test('multi-select retains all roots within a combined 600-node budget',async()=>{
   const browser=await chromium.launch({headless:true});
   try {
-    const page=await browser.newPage();await page.setContent('<style>section{padding:20px;min-height:50px}span{display:none}</style>'+Array.from({length:3},(_,i)=>`<section data-testid="root-${i}">Root ${i}${i===0?'<span>node</span>'.repeat(620):''}</section>`).join(''));
+    const page=await browser.newPage();await page.setContent('<style>section{padding:20px;min-height:50px}span{display:inline}</style>'+Array.from({length:3},(_,i)=>`<section data-testid="root-${i}">Root ${i}${i===0?'<span>node</span>'.repeat(620):''}</section>`).join(''));
     await page.addScriptTag({content:await controllerFixture()});await page.evaluate(()=>window.startTest());
     for(let i=0;i<3;i++){await page.getByTestId(`root-${i}`).click({position:{x:10,y:10},modifiers:i?['Shift']:[]});await settled(page);}
     await page.locator('.download').click();await page.waitForFunction(()=>!!window.downloaded);
@@ -142,5 +142,24 @@ test('selection follows page, nested, shadow and frame scrolling every paint wit
     }
     await page.keyboard.press('Escape');assert.equal(await page.locator('.selection').count(),0);
     await page.keyboard.press('Escape');assert.equal(await page.locator('sourcepin-inspector').count(),0);
+  }finally{await browser.close();}
+});
+
+test('whole-page action in Lite exports markup, reports adapter results and keeps page kind on recapture',async()=>{
+  const browser=await chromium.launch({headless:true});
+  try{
+    const page=await browser.newPage();await page.setContent('<main>'+Array.from({length:1100},(_,i)=>`<div>Page item ${i}</div>`).join('')+'<div hidden>hidden-private</div></main>');
+    await page.addScriptTag({content:await controllerFixture('lite',"async()=>({framework:'React',components:['Page'],props:{}})")});await page.evaluate(()=>window.startTest());
+    await page.locator('[data-action="capture-panel"]').click();await page.locator('[data-action="whole-page"]').click();await settled(page);
+    await page.locator('.download').click();await page.waitForFunction(()=>!!window.downloaded);
+    const md=await page.evaluate(()=>window.downloaded);
+    assert.match(md,/## Cleaned HTML/);assert.match(md,/Page item 1099/);assert.match(md,/"captureKind": "page"/);assert.doesNotMatch(md,/hidden-private|without a platform adapter/);
+    assert.match(md,/framework: present/);assert.match(md,/## Capabilities/);
+    await page.locator('[data-action="settings-panel"]').click();await page.locator('[name="includeHidden"]').check();await settled(page);
+    await page.locator('.download').click();await page.waitForFunction(()=>window.downloaded.includes('data-sourcepin-hidden'));
+    assert.match(await page.evaluate(()=>window.downloaded),/"captureKind": "page"/);
+    await page.keyboard.press('Escape');await page.getByText('Page item 0',{exact:true}).click();await settled(page);
+    await page.locator('.download').click();await page.waitForFunction(()=>window.downloaded.includes('"captureKind": "element"'));
+    assert.doesNotMatch(await page.evaluate(()=>window.downloaded),/## Cleaned HTML/);
   }finally{await browser.close();}
 });
