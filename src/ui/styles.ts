@@ -38,6 +38,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .robot[data-mode="pro"] .mode-switch { background: #ff003f; }
 .robot[data-mode="pro"] .mode-switch::after { transform: translate(22px, -50%); }
 .mode-label { letter-spacing: .06em; font-size: 9px; line-height: 12px; font-weight: 800; }
+.mode-badge { position: absolute; left: 0; right: 0; top: 246px; text-align: center; letter-spacing: .18em; font-size: 10px; line-height: 16px; font-weight: 800; }
 .panel { position: fixed; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto; padding: 16px; border: 5px solid #1c1008; border-radius: 22px; background: #fffdf6; box-shadow: 8px 9px 0 rgb(28 16 8 / .22); user-select: text; }
 .panel[hidden] { display: none; }
 .panel[data-panel="preview"] { display: flex; flex-direction: column; padding: 10px; touch-action: pan-y; }
@@ -45,6 +46,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .panel[data-panel="preview"] .panel-head { flex: none; margin-bottom: 8px; }
 .panel[data-panel="preview"] .preview { min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 15px; }
+.panel-note { margin: 0 0 10px; font-size: 11px; font-weight: 600; line-height: 1.45; opacity: .8; }
+.panel-note[hidden] { display: none; }
 .panel-close { width: 28px; height: 28px; border: 3px solid #1c1008; border-radius: 50%; background: #ffcf27; }
 .panel-close::before { content: "×"; font-size: 19px; line-height: 18px; }
 .field { display: grid; grid-template-columns: 1fr 110px; align-items: center; gap: 8px; margin: 10px 0; }
@@ -53,6 +56,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .panel-actions { display: grid; gap: 8px; }
 .panel-action { min-height: 38px; padding: 7px 11px; border: 3px solid #1c1008; border-radius: 12px; background: #63c9b7; text-align: left; }
 .panel-action.danger { background: #ff3d67; }
+.panel-action:disabled { opacity: .55; cursor: not-allowed; }
 .preview { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .toast { position: absolute; right: 12px; bottom: 52px; max-width: 200px; padding: 8px 12px; border: 3px solid #1c1008; border-radius: 12px; background: #fff; box-shadow: 4px 4px 0 rgb(28 16 8 / .2); opacity: 0; transform: translateY(8px); transition: .16s ease; pointer-events: none; }
 .toast[data-show="true"] { opacity: 1; transform: none; }

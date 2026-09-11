@@ -40,9 +40,12 @@ export interface Platform {
   screenshot?(rect?: Rect): Promise<string>;
   framework?(element: Element): Promise<FrameworkInfo | undefined>;
 }
+/** Read-only adapter capabilities the UI must reflect as unavailable controls. */
+export interface UICapabilities { screenshot: boolean }
 export interface UIState {
   mode: Mode; status: string; count: number; summary: string; copied: boolean;
   busy: boolean; recording: boolean; matched: boolean; markdown: string; settings: Settings;
+  capabilities: UICapabilities;
 }
 export interface UIActions {
   copy(): void; download(): void; close(): void; repick(): void;
@@ -53,6 +56,6 @@ export interface InspectorUI {
   review(details: import('./core/review').ExportReview): Promise<boolean>;
   host: HTMLElement; update(state: UIState): void; toast(message: string): void;
   contains(event: Event): boolean; closePanel(): boolean; destroy(): void;
-  highlight(rect: Rect | null, label?: string, selected?: boolean, color?: string): void;
+  highlight(rect: Rect | null, label?: string, selected?: boolean, color?: string, hint?: boolean): void;
   selections(rects: Rect[]): void; hide(hidden: boolean): void;
 }

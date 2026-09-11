@@ -43,25 +43,26 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   let busy=false,copied=false,alive=true,picking=true,hover: Element | null=null;
   let status='指向元素，点击选中';let savedFilename: string | undefined;
   let operation: AbortController | undefined;let revision=0;let raf=0;
-  let escapeArmed=false;let exporting:AbortController | undefined;
+  let escapeArmed=false;let exporting:AbortController | undefined;let shiftHintShown=false;
   const documents=new Map<Document,()=>void>();
   const recordings=()=>recorder?.snapshot() || recorded;
   const markdown=(summary=false)=>renderMarkdown([...captures,...viewports],{summary,language:settings.language,recording:recordings(),savedFilename});
   const valid=()=>captures.length>0 && selected.every((el,i)=>el.isConnected && validateLocators(el,captures[i]?.locators || []).some(l=>l.verified));
-  const state=(): UIState=>({mode:settings.mode,status,count:selected.length,summary:captures.length ? `${describe(selected[0])}\n${captures[0].target.text.slice(0,70)}`:'',copied,busy,recording:!!recorder,matched:valid(),markdown:captures.length?preview():'',settings});
+  const state=(): UIState=>({mode:settings.mode,status,count:selected.length,summary:captures.length ? `${describe(selected[0])}\n${captures[0].target.text.slice(0,70)}`:'',copied,busy,recording:!!recorder,matched:valid(),markdown:captures.length?preview():'',settings,capabilities:{screenshot:!!platform.screenshot}});
+  function applySettings(next: Settings){
+    const previous=settings;settings=normalizeSettings(next);void platform.saveSettings(settings).catch(()=>ui.toast('设置保存失败，本次会话仍然有效'));
+    if(settings.mode!==previous.mode || settings.maxDepth!==previous.maxDepth || settings.maxNodes!==previous.maxNodes || settings.includeHidden!==previous.includeHidden){
+      recorder?.dispose();recorder=undefined;recorded=undefined;viewports=[];if(selected.length)void captureSelected();
+    }
+    copied=false;update();
+  }
   const ui=createUI({
     copy:()=>void copy(),download:()=>void download(),close:()=>destroy(),
     repick:()=>resetSelection(),
-    settings:(next)=>{
-      const previous=settings;settings=normalizeSettings(next);void platform.saveSettings(settings).catch(()=>ui.toast('设置保存失败，本次会话仍然有效'));
-      if(settings.mode!==previous.mode || settings.maxDepth!==previous.maxDepth || settings.maxNodes!==previous.maxNodes || settings.includeHidden!==previous.includeHidden){
-        recorder?.dispose();recorder=undefined;recorded=undefined;viewports=[];if(selected.length)void captureSelected();
-      }
-      copied=false;update();
-    },
+    settings:(next)=>applySettings(next),
     record:()=>toggleRecording(),screenshot:(component)=>void screenshot(component),
     wholePage:()=>{recorder?.dispose();recorder=undefined;recorded=undefined;selected=[document.body || document.documentElement];captureKind='page';picking=false;hover=null;ui.highlight(null);ui.toast('整页采集：独立 DOM/样式预算，默认排除隐藏内容');void captureSelected();},
-    addViewport:()=>{if(captures.length){viewports.push(...captures);if(viewports.length>20)viewports.splice(0,viewports.length-20);void captureSelected(true);}}
+    addViewport:()=>{if(!captures.length){ui.toast(settings.language==='en'?'Select an element before adding a viewport':'先选择一个元素，再追加视口');return;}viewports.push(...captures);if(viewports.length>20)viewports.splice(0,viewports.length-20);void captureSelected(true);}
   },state(),assetUrl);
   const update=()=>{if(alive)ui.update(state());};
   // Count the first display, even when the user dismisses without pressing Start.
@@ -75,13 +76,14 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   function resetSelection(){
     exporting?.abort();while(ui.closePanel()){}
     recorder?.dispose();recorder=undefined;recorded=undefined;
-    operation?.abort();busy=false;picking=true;escapeArmed=false;hover=null;
+    operation?.abort();busy=false;picking=true;hover=null;
     captureKind='element';selected=[];captures=[];viewports=[];copied=false;savedFilename=undefined;revision++;
     status='指向元素，点击选中';ui.highlight(null);ui.selections([]);update();
   }
 
   async function captureSelected(keepViewports=false) {
-    escapeArmed=false;
+    // The Escape unwind is cleared only by destroying the tool or by picking a
+    // new target, never by a recapture inside the same selection.
     trackGeometry();
     operation?.abort();const current=new AbortController();operation=current;
     const targets=[...selected];busy=true;copied=false;savedFilename=undefined;status='正在捕获组件上下文…';revision++;
@@ -162,13 +164,22 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
       ui.toast(await platform.screenshot!(component?topRect(selected[0]):undefined));
     }finally{if(alive)ui.hide(false);}
   }
-  function toggleRecording(){
-    if(recorder){recorded=recorder.stop();recorder=undefined;picking=false;status=`已记录 ${recorded.states.length} 个状态`;copied=false;revision++;update();return;}
-    if(settings.mode!=='pro'){ui.toast('切换到 Pro 后可录制交互状态');return;}
+  async function beginRecording(){
     if(!ensureFresh())return;
     picking=false;recorded=undefined;
     recorder=createRecorder(selected[0],()=>{copied=false;revision++;update();});
     status='录制中 · 请正常操作网页，完成后停止';update();
+  }
+  async function toggleRecording(){
+    if(recorder){recorded=recorder.stop();recorder=undefined;picking=false;status=`已记录 ${recorded.states.length} 个状态`;copied=false;revision++;update();return;}
+    // Lite has no recording. Switch first through the normal settings path, so
+    // the existing recapture runs, then start recording in the same gesture
+    // instead of only reporting that Pro would be required.
+    if(settings.mode!=='pro'){
+      applySettings({...settings,mode:'pro'});
+      await captureSelected();
+    }
+    await beginRecording();
   }
   function elementFrom(event: Event): Element | null {
     if(ui.contains(event))return null;
@@ -197,7 +208,12 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
       if(!picking || !hover?.isConnected || !alive){ui.highlight(null);return;}
       const r=topRect(hover), parent=hover.parentElement;
       const layout=parent ? hover.ownerDocument.defaultView!.getComputedStyle(parent).display:'';
-      ui.highlight(r,`${describe(hover)} · ${Math.round(r.width)} × ${Math.round(r.height)}${layout==='grid' || layout==='flex' ? ` · ${layout} ${visibleChildren(parent!).indexOf(hover)+1}/${visibleChildren(parent!).length}`:''}`,false);
+      // Multi-pick exists only in the README. Surface it once, in the label the
+      // pointer is already reading, instead of repeating it every paint.
+      const hint=selected.length<10 && !shiftHintShown;
+      if(hint)shiftHintShown=true;
+      const suffix=hint ? (settings.language==='en' ? ' · Shift+click to multi-select' : ' · Shift 点击可多选') : '';
+      ui.highlight(r,`${describe(hover)} · ${Math.round(r.width)} × ${Math.round(r.height)}${layout==='grid' || layout==='flex' ? ` · ${layout} ${visibleChildren(parent!).indexOf(hover)+1}/${visibleChildren(parent!).length}`:''}${suffix}`,false,undefined,hint);
   }
   function onClick(event: Event){
     if(!picking || !event.isTrusted || ui.contains(event))return;
@@ -209,8 +225,15 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     if(mouse.shiftKey)target.ownerDocument.getSelection()?.removeAllRanges();
     recorder?.dispose();recorder=undefined;recorded=undefined;
     if(captureKind==='page')selected=[];captureKind='element';
-    if(mouse.shiftKey){selected=selected.includes(target)?selected.filter(el=>el!==target):[...selected,target].slice(0,10);}
+    if(mouse.shiftKey){
+      const clipped=!selected.includes(target) && selected.length>=10;
+      selected=selected.includes(target)?selected.filter(el=>el!==target):[...selected,target].slice(0,10);
+      // Report the boundary instead of dropping the extra target silently.
+      if(clipped)ui.toast(settings.language==='en'?'Up to 10 targets per capture':'最多选择 10 个目标，已保留前 10 个');
+    }
     else selected=[target];
+    // A fresh pick restarts the two-press Escape unwind.
+    escapeArmed=false;shiftHintShown=false;
     hover=null;ui.highlight(null);ui.selections(selected.map(topRect));
     if(selected.length)void captureSelected();else{operation?.abort();captures=[];busy=false;copied=false;status='指向元素，点击选中';update();}
   }
@@ -218,9 +241,18 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     const key=event as KeyboardEvent;
     if(key.key==='Escape'){
       key.preventDefault();key.stopImmediatePropagation();if(key.repeat)return;
+      // Layered unwind: a first press only closes what is open on top of the
+      // selection, so dismissing a dialog never discards the picked targets.
       if(escapeArmed){destroy();return;}
-      resetSelection();while(ui.closePanel()){}escapeArmed=true;
-      ui.toast(settings.language==='en'?'Selection cleared · Esc again to close':'已取消选择 · 再按 Esc 退出');return;
+      if(ui.closePanel()){
+        ui.toast(settings.language==='en'?'Panel closed · selection kept':'已关闭面板 · 选择保留');return;
+      }
+      if(selected.length){
+        resetSelection();
+        ui.toast(settings.language==='en'?'Selection cleared · Esc again to close':'已取消选择 · 再按 Esc 退出');return;
+      }
+      escapeArmed=true;
+      ui.toast(settings.language==='en'?'Esc again to close':'再按 Esc 退出');return;
     }
     if(key.repeat || editable(key) || selectedText((event.currentTarget as Document)))return;
     if(!(key.metaKey || key.ctrlKey) || key.altKey)return;

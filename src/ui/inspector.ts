@@ -27,6 +27,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
       </section>
       <section class="panel" data-panel="capture" aria-label="画面采集" hidden>
         <div class="panel-head"><span data-text="capture">画面采集</span><button class="panel-close" data-action="panel-close" aria-label="关闭画面采集"></button></div>
+        <p class="panel-note" hidden></p>
         <div class="panel-actions"><button class="panel-action" data-action="component-shot">截取组件</button><button class="panel-action" data-action="viewport-shot">截取当前视口</button><button class="panel-action" data-action="whole-page">捕获整页 DOM</button><button class="panel-action" data-action="add-viewport">追加当前视口</button></div>
       </section>
       <section class="panel" data-panel="preview" aria-label="Markdown 预览" hidden>
@@ -49,6 +50,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
         <button class="hotspot gear" data-action="mode-picker" aria-label="选择 Lite 或 Pro 模式" aria-expanded="false" aria-controls="sourcepin-mode-picker"></button>
         <button class="inspector-close" data-action="close" aria-label="关闭 SourcePin">×</button>
         <div class="mode-picker" id="sourcepin-mode-picker" hidden><button class="mode-switch" data-action="mode" role="switch" aria-label="切换 Lite 或 Pro 模式"></button><span class="mode-label"></span></div>
+        <span class="mode-badge"></span>
       </div><div class="toast" role="status" aria-live="polite"></div>
     </div>`;
   document.documentElement.append(host);
@@ -61,7 +63,9 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   let state = initial;
   let toastTimer: number | undefined;
   let hidden = false;
-  let onboardingShown = false;
+  // Only a state that still owes the tour may open it, so a controller that
+  // already dismissed it never reopens the panel on a later update.
+  let onboardingShown = !!initial.settings.onboardingDone;
   image.src = assetUrl;
   proImage.src = assetUrl;
   // The trusted bundled SVG stays vector-based so each visible control can move.
@@ -248,6 +252,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   const update = (next: UIState) => {
     state = next;
     const en = next.settings.language === 'en';
+    const noShot = en ? 'Screenshots need the Chrome extension; bookmarks and this page can copy or download Markdown.' : '截图需要 Chrome 扩展版；书签版与本页可复制或下载 Markdown。';
     robot.dataset.mode = next.mode;
     robot.dataset.copied = String(next.copied);
     robot.classList.toggle('busy', next.busy);
@@ -264,12 +269,28 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     } : { includeHidden: '包含隐藏内容', settings: '设置', language: '输出语言', maxNodes: '最大节点数', maxDepth: '最大深度', capture: '画面采集', preview: '预览' };
     root.querySelectorAll<HTMLElement>('[data-text]').forEach(node => { node.textContent = labels[node.dataset.text || ''] || ''; });
     const aria: Record<string, string> = en ? {
-      '.screen': 'Preview capture', '.settings-button': 'Open settings', '.capture': 'Open capture', '.drag-handle': 'Drag SourcePin', '.gear': 'Choose Lite or Pro mode', '.mode-switch': 'Switch Lite or Pro mode',
+      '.screen': 'Preview capture', '.settings-button': 'Open settings', '.capture': 'Open capture', '.drag-handle': 'Drag SourcePin', '.mode-switch': 'Switch Lite or Pro mode',
       '[data-action="component-shot"]': 'Capture component', '[data-action="viewport-shot"]': 'Capture viewport', '[data-action="whole-page"]': 'Capture whole-page DOM',
     } : {
-      '.screen': '预览捕获内容', '.settings-button': '打开设置', '.capture': '打开画面采集', '.drag-handle': '拖动 SourcePin', '.gear': '选择 Lite 或 Pro 模式', '.mode-switch': '切换 Lite 或 Pro 模式',
+      '.screen': '预览捕获内容', '.settings-button': '打开设置', '.capture': '打开画面采集', '.drag-handle': '拖动 SourcePin', '.mode-switch': '切换 Lite 或 Pro 模式',
     };
     Object.entries(aria).forEach(([selector, label]) => q<HTMLElement>(root, selector).setAttribute('aria-label', label));
+    // The mode is stated, not only coloured: the badge is always visible and
+    // the gear repeats the current mode for assistive technology.
+    const modeName = next.mode === 'lite' ? 'Lite' : 'Pro';
+    q<HTMLElement>(root, '.mode-badge').textContent = next.mode.toUpperCase();
+    q<HTMLElement>(root, '.mode-badge').setAttribute('aria-label', en ? `Current mode: ${modeName}` : `当前模式：${modeName}`);
+    q<HTMLElement>(root, '.gear').setAttribute('aria-label', en ? `Choose Lite or Pro mode · currently ${modeName}` : `选择 Lite 或 Pro 模式 · 当前 ${modeName}`);
+    // Greying out is a capability statement, not a hiding place: the reason is
+    // visible in the panel and repeated in each disabled button's title.
+    const shotReason = q<HTMLElement>(root, '[data-panel="capture"] .panel-note');
+    shotReason.textContent = next.capabilities.screenshot ? '' : noShot;
+    shotReason.hidden = next.capabilities.screenshot;
+    for (const selector of ['[data-action="component-shot"]', '[data-action="viewport-shot"]'] as const) {
+      const button = q<HTMLButtonElement>(root, selector);
+      button.disabled = !next.capabilities.screenshot;
+      if (next.capabilities.screenshot) button.removeAttribute('title'); else button.title = noShot;
+    }
     q<HTMLElement>(root, '[data-panel="settings"] .panel-close').setAttribute('aria-label', en ? 'Close settings' : '关闭设置');
     q<HTMLElement>(root, '[data-panel="capture"] .panel-close').setAttribute('aria-label', en ? 'Close capture' : '关闭画面采集');
     q<HTMLElement>(root, '[data-panel="preview"] .panel-close').setAttribute('aria-label', en ? 'Close preview' : '关闭预览');
@@ -284,7 +305,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     q<HTMLInputElement>(root, '[name="maxNodes"]').value = String(next.settings.maxNodes);
     q<HTMLInputElement>(root, '[name="maxDepth"]').value = String(next.settings.maxDepth);
     q<HTMLInputElement>(root, '[name="includeHidden"]').checked = !!next.settings.includeHidden;
-    q<HTMLElement>(root, '[data-action="record"]').textContent = next.recording ? (en ? 'Stop recording' : '停止录制') : (en ? 'Start recording' : '开始录制');
+    q<HTMLElement>(root, '[data-action="record"]').textContent = next.recording ? (en ? 'Stop recording' : '停止录制') : next.mode === 'pro' ? (en ? 'Start recording' : '开始录制') : (en ? 'Switch to Pro and start recording' : '切换到 Pro 并开始录制');
     q<HTMLElement>(root, '[data-action="record"]').classList.toggle('danger', next.recording);
     q<HTMLElement>(root, '.preview').textContent = next.markdown || '尚未捕获内容。';
     host.style.display = hidden ? 'none' : '';
@@ -324,12 +345,13 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
       removeEventListener('resize', constrain);
       host.remove();
     },
-    highlight(rect: Rect | null, label = '', selected = false, color) {
+    highlight(rect: Rect | null, label = '', selected = false, color?: string, hint = false) {
       const node = q<HTMLElement>(root, '.highlight');
       node.hidden = !rect;
-      if (!rect) return;
+      if (!rect) { node.dataset.hint = 'false'; return; }
       Object.assign(node.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px`, borderColor: color || '' });
       node.dataset.selected = String(selected);
+      node.dataset.hint = String(hint);
       q<HTMLElement>(root, '.highlight-label').textContent = label;
     },
     selections(rects: Rect[]) {

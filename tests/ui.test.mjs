@@ -23,11 +23,11 @@ test.before(async () => {
 
 test.after(async () => browser?.close());
 
-async function fixture(viewport = { width: 900, height: 700 }) {
+async function fixture(viewport = { width: 900, height: 700 }, screenshot = true, onboardingDone = true) {
   const page = await browser.newPage({ viewport, deviceScaleFactor: 2 });
   await page.setContent('<style>button{all:unset!important}</style><main>page</main>');
   await page.addScriptTag({ content: bundle });
-  await page.evaluate(assetUrl => {
+  await page.evaluate(({ assetUrl, screenshot, onboardingDone }) => {
     window.calls = [];
     window.ui = SourcePinUI.createUI({
       copy: () => calls.push(['copy']),
@@ -42,9 +42,10 @@ async function fixture(viewport = { width: 900, height: 700 }) {
     }, {
       mode: 'lite', status: '选择一个元素', count: 0, summary: '', copied: false,
       busy: false, recording: false, matched: false, markdown: '# Capture',
-      settings: { mode: 'lite', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false },
+      settings: { mode: 'lite', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone, includeHidden: false },
+      capabilities: { screenshot },
     }, assetUrl);
-  }, robotAsset);
+  }, { assetUrl: robotAsset, screenshot, onboardingDone });
   return page;
 }
 
@@ -99,22 +100,21 @@ test('screen content, match state and localized labels follow the visible state'
 
   await page.evaluate(() => ui.update({ mode: 'lite', status: '已选择', count: 1, summary: 'button · 提交', copied: false,
     busy: false, recording: false, matched: true, markdown: '# Capture',
-    settings: { mode: 'lite', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false } }));
+    settings: { mode: 'lite', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false },
+    capabilities: { screenshot: true } }));
   assert.match(await screen.textContent(), /定位准确/);
   assert.match(await screen.textContent(), /button · 提交/);
 
   await page.evaluate(() => ui.update({ mode: 'lite', status: 'Selected', count: 3, summary: 'x'.repeat(81), copied: false,
     busy: false, recording: false, matched: false, markdown: '# Capture',
-    settings: { mode: 'lite', language: 'en', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false } }));
+    settings: { mode: 'lite', language: 'en', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false },
+    capabilities: { screenshot: true } }));
   assert.equal((await screen.textContent()).trim(), '3');
   assert.equal(await page.getByRole('button', { name: 'Open settings' }).isVisible(), true);
 });
 
 test('onboarding shows actual defaults and closes as soon as the user starts', async () => {
-  const page = await fixture();
-  await page.evaluate(() => ui.update({ mode: 'lite', status: '选择一个元素', count: 0, summary: '', copied: false,
-    busy: false, recording: false, matched: false, markdown: '',
-    settings: { mode: 'lite', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: false, includeHidden: false } }));
+  const page = await fixture(undefined, true, false);
   const onboarding = page.locator('sourcepin-inspector [data-panel="onboarding"]');
   await expectVisible(onboarding);
   assert.match(await onboarding.textContent(), /Lite 模式、中文输出并手动开始状态录制/);
@@ -153,7 +153,8 @@ test('update, overlays, containment, viewport constraints and lifecycle are stat
   const result = await page.evaluate(() => {
     ui.update({ mode: 'pro', status: '已复制', count: 2, summary: 'button · Submit', copied: true,
       busy: false, recording: true, matched: true, markdown: 'full output',
-      settings: { mode: 'pro', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false } });
+      settings: { mode: 'pro', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false },
+      capabilities: { screenshot: true } });
     ui.highlight({ x: 20, y: 30, width: 100, height: 24 }, 'button 100×24', true, '#ff0060');
     ui.selections([{ x: 5, y: 40, width: 30, height: 20 }, { x: 50, y: 40, width: 30, height: 20 }]);
     ui.toast('Copied');
@@ -214,7 +215,7 @@ test('only the active vector theme is visible so the body shadow is drawn once',
   assert.equal(await page.locator('.asset-lite').isVisible(),true);
   assert.equal(await page.locator('.asset-pro').isVisible(),false);
   assert.equal(await page.locator('.asset-lite [id="Vector"]').getAttribute('fill'),'#59AC9D');
-  await page.evaluate(()=>ui.update({mode:'pro',status:'',count:0,summary:'',copied:false,busy:false,recording:false,matched:false,markdown:'',settings:{mode:'pro',language:'zh',maxNodes:300,maxDepth:6,onboardingDone:true}}));
+  await page.evaluate(()=>ui.update({mode:'pro',status:'',count:0,summary:'',copied:false,busy:false,recording:false,matched:false,markdown:'',settings:{mode:'pro',language:'zh',maxNodes:300,maxDepth:6,onboardingDone:true},capabilities:{screenshot:true}}));
   assert.equal(await page.locator('.asset-lite').isVisible(),false);
   assert.equal(await page.locator('.asset-pro').isVisible(),true);
   await page.close();
@@ -227,7 +228,7 @@ test('Lite and Pro use the same single-pass shadow opacity',async()=>{
     return page.evaluate(async data=>{const img=new Image();img.src=data;await img.decode();const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;const c=canvas.getContext('2d');c.drawImage(img,0,0);return [...c.getImageData(394,312,1,1).data];},'data:image/png;base64,'+png.toString('base64'));
   };
   const lite=await pixel();
-  await page.evaluate(()=>ui.update({mode:'pro',status:'',count:0,summary:'',copied:false,busy:false,recording:false,matched:false,markdown:'',settings:{mode:'pro',language:'zh',maxNodes:300,maxDepth:6,onboardingDone:true}}));
+  await page.evaluate(()=>ui.update({mode:'pro',status:'',count:0,summary:'',copied:false,busy:false,recording:false,matched:false,markdown:'',settings:{mode:'pro',language:'zh',maxNodes:300,maxDepth:6,onboardingDone:true},capabilities:{screenshot:true}}));
   const pro=await pixel();assert.deepEqual(pro,lite);assert.ok(lite[0]>170&&lite[0]<220);
   await page.close();
 });
@@ -250,4 +251,37 @@ test('gear alone toggles the mode picker and preview matches the console above i
   const small=await panel.boundingBox(),smallAsset=await page.locator('.asset-lite').boundingBox();
   assert.ok(small.x>=8 && small.y>=8 && small.x+small.width<=312);
   assert.ok(small.y+small.height+8<=smallAsset.y+.5);
+});
+
+test('capture buttons state their missing capability instead of hiding it', async () => {
+  const page = await fixture({ width: 900, height: 700 }, false);
+  await page.getByRole('button', { name: '打开画面采集' }).click();
+  const note = page.locator('sourcepin-inspector [data-panel="capture"] .panel-note');
+  assert.equal(await note.isVisible(), true);
+  assert.match(await note.textContent(), /截图需要 Chrome 扩展版/);
+  for (const name of ['截取组件', '截取当前视口']) {
+    const button = page.getByRole('button', { name });
+    assert.equal(await button.isDisabled(), true);
+    assert.match(await button.getAttribute('title'), /截图需要 Chrome 扩展版/);
+  }
+  // The rest of the capture panel stays usable, so nothing else is greyed out.
+  await page.getByRole('button', { name: '捕获整页 DOM' }).click();
+  await page.getByRole('button', { name: '追加当前视口' }).click();
+  assert.deepEqual(await page.evaluate(() => calls), [['wholePage'], ['addViewport']]);
+  await page.close();
+});
+
+test('current mode is readable without opening the mode picker', async () => {
+  const page = await fixture();
+  const badge = page.locator('sourcepin-inspector .mode-badge');
+  assert.equal(await page.locator('.mode-picker').isVisible(), false);
+  assert.equal(await badge.isVisible(), true);
+  assert.equal((await badge.textContent()).trim(), 'LITE');
+  await page.evaluate(() => ui.update({ mode: 'pro', status: '', count: 0, summary: '', copied: false,
+    busy: false, recording: false, matched: false, markdown: '',
+    settings: { mode: 'pro', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false },
+    capabilities: { screenshot: true } }));
+  assert.equal(await page.locator('.mode-picker').isVisible(), false);
+  assert.equal((await badge.textContent()).trim(), 'PRO');
+  await page.close();
 });

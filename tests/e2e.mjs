@@ -14,6 +14,18 @@ const context=await chromium.launchPersistentContext('',{
   args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`,'--enable-unsafe-extension-debugging'],
   permissions:['clipboard-read','clipboard-write'],acceptDownloads:true
 });
+
+// Escape unwinds one layer per press now, so exit sequences press until the
+// inspector is actually detached instead of assuming a fixed count.
+async function escapeUntilClosed(page){
+  const root=page.locator('[data-sourcepin-root]');
+  for(let attempt=0;attempt<4;attempt++){
+    if(await root.count()===0)return true;
+    await page.keyboard.press('Escape');
+    try{await root.waitFor({state:'detached',timeout:1200});return true;}catch{}
+  }
+  return await root.count()===0;
+}
 const results=[];
 let testPage;
 try{
@@ -35,7 +47,7 @@ try{
   assert.equal(await onboarding.isVisible(),true);
   await root.locator('.gear').click();await root.locator('.mode-switch').click();await root.locator('.mode-switch').click();await root.locator('.gear').click();
   assert.equal(await worker.evaluate(async()=>(await chrome.storage.local.get('settings')).settings.onboardingDone),true);
-  await page.keyboard.press('Escape');await page.keyboard.press('Escape');
+  assert.equal(await escapeUntilClosed(page),true);
   await page.reload();await browserCdp.send('Extensions.triggerAction',{id,targetId:targetInfo.targetId});await root.waitFor();
   assert.equal(await onboarding.isVisible(),false);
   await page.screenshot({path:'artifacts/01-extension-lite.png'});
@@ -74,9 +86,7 @@ try{
   assert.match(full,/## State Machine/);assert.match(full,/aria-expanded|class/);
   assert.doesNotMatch(full,/SOURCEPIN_TEST_PASSWORD|SOURCEPIN_TEST_TOKEN/);
   results.push('Bounded Pro preview and full downloaded report preserve recorded transition evidence');
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
-  await root.waitFor({state:'detached'});
+  assert.equal(await escapeUntilClosed(page),true);
   await browserCdp.send('Extensions.triggerAction',{id,targetId:targetInfo.targetId});
   await page.locator('[data-sourcepin-root]').waitFor({timeout:6000});
   assert.equal(await page.locator('[data-sourcepin-root] .robot').getAttribute('data-mode'),'pro');
@@ -122,6 +132,7 @@ try{
   await page.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
   await root.locator('.screen').click();
   assert.doesNotMatch(await root.locator('.preview').textContent(),/SOURCEPIN_TEST_TOKEN|SOURCEPIN_TEST_PASSWORD/);
+  // Closes the preview panel only; the tool stays alive for the next target.
   await page.keyboard.press('Escape');
   results.push('Full export excludes seeded sensitive attributes and form values');
   await page.getByTestId('privacy-target').click();
@@ -139,6 +150,7 @@ try{
   assert.ok(Math.abs(pngBytes.readUInt32BE(20)-Math.round(componentBox.height))<=1,JSON.stringify({pngHeight:pngBytes.readUInt32BE(20),componentBox}));
   await root.waitFor({state:'visible'});
   results.push('Extension captures and downloads visible component PNG then restores UI');
+  // Closes the capture panel only; picking continues.
   await page.keyboard.press('Escape');
 
   await page.getByTestId('privacy-target').click();
@@ -163,7 +175,7 @@ try{
   assert.match(await bookmarkPage.evaluate(()=>navigator.clipboard.readText()),/project-toggle/);
   await bookmarkPage.keyboard.press('Escape');assert.equal(await bookmarkRoot.count(),1);
   assert.equal(await bookmarkRoot.locator('.screen-count').textContent(),'');
-  await bookmarkPage.keyboard.press('Escape');assert.equal(await bookmarkRoot.count(),0);
+  assert.equal(await escapeUntilClosed(bookmarkPage),true);
   await bookmarkPage.close();
   results.push('Packaged javascript bookmarklet launches, captures, copies and cleans up');
   const another=await context.newPage();await another.route('https://onboarding.test/**',r=>r.fulfill({contentType:'text/html',body:'<h1>Another origin</h1>'}));await another.goto('https://onboarding.test/');
@@ -238,7 +250,7 @@ try{
     await offline.screenshot({path:`artifacts/offline-${adapter}.png`});await offline.close();
     pageEvidence.push({adapter,sampled,styleBytes,coverage,deepStyles,nodes:structure.nodes.length,captureBytes,zipBytes:zipBytes.length,htmlBytes:files['page.html'].length,reportBytes:Buffer.byteLength(report),siblingCount:structure.target.siblingCount,externalRequests:requests,degradations:captured.degradations,meta});
     await root.locator('.screen').click();const previewBytes=Buffer.byteLength(await root.locator('.preview').textContent());assert.ok(previewBytes<=15*1024);pageEvidence.at(-1).previewBytes=previewBytes;await whole.screenshot({path:`artifacts/page-${adapter}.png`});
-    await whole.keyboard.press('Escape');await whole.keyboard.press('Escape');await whole.close();
+    await escapeUntilClosed(whole);await whole.close();
     results.push(`${adapter}: Lite whole-page ZIP opens offline with images and shadow/template, zero requests, explicit budget cutoff`);
   }
   await writeFile('artifacts/page-capture-results.json',JSON.stringify({timestamp:new Date().toISOString(),captures:pageEvidence},null,2));
