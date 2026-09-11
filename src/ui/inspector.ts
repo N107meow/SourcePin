@@ -61,6 +61,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   let state = initial;
   let toastTimer: number | undefined;
   let hidden = false;
+  let onboardingShown = false;
   image.src = assetUrl;
   proImage.src = assetUrl;
   // The trusted bundled SVG stays vector-based so each visible control can move.
@@ -288,7 +289,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     q<HTMLElement>(root, '.preview').textContent = next.markdown || '尚未捕获内容。';
     host.style.display = hidden ? 'none' : '';
     requestAnimationFrame(constrain);
-    if (!next.settings.onboardingDone && panels().every(panel => panel.hidden)) openPanel('onboarding');
+    if (!onboardingShown && !next.settings.onboardingDone && panels().every(panel => panel.hidden)) {onboardingShown=true;openPanel('onboarding');}
   };
 
   update(initial);

@@ -1,2 +1,2 @@
 import {launchBrowserInspector} from './browser-launcher';
-launchBrowserInspector('bookmarklet');
+launchBrowserInspector('demo');

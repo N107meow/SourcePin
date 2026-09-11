@@ -32,7 +32,12 @@ try{
   results.push('Actual extension default action injects content script with activeTab');
   const root=page.locator('[data-sourcepin-root]');
   const onboarding=root.locator('[data-action="onboarding-done"]');
-  if(await onboarding.isVisible())await onboarding.click();
+  assert.equal(await onboarding.isVisible(),true);
+  await root.locator('.gear').click();await root.locator('.mode-switch').click();await root.locator('.mode-switch').click();await root.locator('.gear').click();
+  assert.equal(await worker.evaluate(async()=>(await chrome.storage.local.get('settings')).settings.onboardingDone),true);
+  await page.keyboard.press('Escape');await page.keyboard.press('Escape');
+  await page.reload();await browserCdp.send('Extensions.triggerAction',{id,targetId:targetInfo.targetId});await root.waitFor();
+  assert.equal(await onboarding.isVisible(),false);
   await page.screenshot({path:'artifacts/01-extension-lite.png'});
   await page.getByTestId('project-toggle').click();
   await page.waitForFunction(()=>{const r=document.querySelector('[data-sourcepin-root]')?.shadowRoot;return r?.querySelector('.screen-count').textContent==='1' && !r.querySelector('.robot').classList.contains('busy');});
@@ -116,6 +121,7 @@ try{
   await page.getByTestId('privacy-target').click();
   await page.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
 
+  await page.getByTestId('privacy-target').evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
   await root.locator('[data-action="capture-panel"]').click();
   const screenshotDownload=page.waitForEvent('download',{timeout:6000});
   await root.locator('[data-action="component-shot"]').click();await confirmExport(page);
@@ -124,7 +130,7 @@ try{
   const pngBytes=await readFile('artifacts/04-component-capture.png');
   const componentBox=await page.getByTestId('privacy-target').boundingBox();
   assert.ok(Math.abs(pngBytes.readUInt32BE(16)-Math.round(componentBox.width))<=1);
-  assert.ok(Math.abs(pngBytes.readUInt32BE(20)-Math.round(componentBox.height))<=1);
+  assert.ok(Math.abs(pngBytes.readUInt32BE(20)-Math.round(componentBox.height))<=1,JSON.stringify({pngHeight:pngBytes.readUInt32BE(20),componentBox}));
   await root.waitFor({state:'visible'});
   results.push('Extension captures and downloads visible component PNG then restores UI');
   await page.keyboard.press('Escape');
@@ -143,7 +149,7 @@ try{
   await bookmarkPage.waitForFunction(()=>document.querySelector('#bookmarklet').href.startsWith('javascript:'));
   await bookmarkPage.locator('#bookmarklet').click();
   const bookmarkRoot=bookmarkPage.locator('[data-sourcepin-root]');await bookmarkRoot.waitFor();
-  await bookmarkRoot.locator('[data-action="onboarding-done"]').click();
+  assert.equal(await bookmarkRoot.locator('[data-panel="onboarding"]').isVisible(),false);
   await bookmarkPage.getByTestId('project-toggle').click();
   await bookmarkPage.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
   await bookmarkPage.keyboard.press('Meta+c');await confirmExport(bookmarkPage);
@@ -154,6 +160,12 @@ try{
   await bookmarkPage.keyboard.press('Escape');assert.equal(await bookmarkRoot.count(),0);
   await bookmarkPage.close();
   results.push('Packaged javascript bookmarklet launches, captures, copies and cleans up');
+  const another=await context.newPage();await another.route('https://onboarding.test/**',r=>r.fulfill({contentType:'text/html',body:'<h1>Another origin</h1>'}));await another.goto('https://onboarding.test/');
+  const otherTargets=await browserCdp.send('Target.getTargets',{filter:[{type:'tab',exclude:false}]});
+  await browserCdp.send('Extensions.triggerAction',{id,targetId:otherTargets.targetInfos.find(t=>t.url===another.url()).targetId});
+  await another.locator('[data-sourcepin-root]').waitFor();assert.equal(await another.locator('[data-panel="onboarding"]').isVisible(),false);await another.close();await page.bringToFront();
+  results.push('Extension guidance is remembered on first display after dismissal, reload and another origin');
+
   // Real download from a deterministic long page, for both shipping adapters.
   const pageEvidence=[];
   for(const adapter of ['extension','bookmarklet']){

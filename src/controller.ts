@@ -64,6 +64,12 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     addViewport:()=>{if(captures.length){viewports.push(...captures);if(viewports.length>20)viewports.splice(0,viewports.length-20);void captureSelected(true);}}
   },state(),assetUrl);
   const update=()=>{if(alive)ui.update(state());};
+  // Count the first display, even when the user dismisses without pressing Start.
+  if(!settings.onboardingDone){
+    settings={...settings,onboardingDone:true};
+    update();
+    void platform.saveSettings(settings).catch(()=>ui.toast('引导记录未能保存，本次使用不会再次显示'));
+  }
 
   function preview(){try{return markdown();}catch(error){return error instanceof Error?error.message:String(error);}}
   function resetSelection(){

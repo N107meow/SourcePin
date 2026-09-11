@@ -29,6 +29,10 @@ test('Pages subpath installation exposes a self-contained bookmark that works on
     await page.locator('#test-drop').evaluate(el=>el.remove());
     assert.ok(!decodeURIComponent(bookmark).includes('127.0.0.1:4317'));
     await page.locator('#try-sourcepin').click();await page.locator('[data-sourcepin-root]').waitFor();
+    assert.equal(await page.locator('[data-panel="onboarding"]').isVisible(),true);
+    await page.keyboard.press('Escape');await page.keyboard.press('Escape');
+    await page.reload();await page.locator('#try-sourcepin').click();await page.locator('[data-sourcepin-root]').waitFor();
+    assert.equal(await page.locator('[data-panel="onboarding"]').isVisible(),false);
     await page.keyboard.press('Escape');await page.keyboard.press('Escape');
     // The stored URL is replayed by the browser on a different origin. No host
     // page, local dev server or remote loader is needed after installing it.
@@ -36,7 +40,7 @@ test('Pages subpath installation exposes a self-contained bookmark that works on
     await page.goto('https://target.test/');
     await page.evaluate(url=>{location.href=url;},bookmark);
     await page.locator('[data-sourcepin-root]').waitFor();
-    await page.locator('[data-action="onboarding-done"]').click();await page.getByTestId('target').click();
+    assert.equal(await page.locator('[data-panel="onboarding"]').isVisible(),false);await page.getByTestId('target').click();
     await page.waitForFunction(()=>!document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').classList.contains('busy'));
     await page.keyboard.press('Control+c');await confirmExport(page);await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.copy').dataset.copied==='true');
     assert.match(await page.evaluate(()=>navigator.clipboard.readText()),/Target site/);

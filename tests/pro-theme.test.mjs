@@ -10,7 +10,8 @@ test('bundled bookmarklet switches the body red under connect-src none and resto
   const page=await browser.newPage({viewport:{width:900,height:700}});
   await page.route('https://theme.test/**',route=>route.fulfill({contentType:'text/html',headers:{'Content-Security-Policy':"connect-src 'none'"},body:'<main><h1>Theme fixture</h1><button>Choose this</button></main>'}));
   await page.goto('https://theme.test/');await page.evaluate(code=>(0,eval)(code),built.outputFiles[0].text);
-  await page.locator('[data-action="onboarding-done"]').click();
+  await page.locator('[data-sourcepin-root]').waitFor();
+  assert.equal(await page.locator('[data-panel="onboarding"]').isVisible(),false);
   await page.locator('.gear').click();await page.locator('.mode-switch').click();
   assert.equal(await page.locator('.robot').getAttribute('data-mode'),'pro');
   const bodyFill=()=>page.locator('.asset-pro').evaluate(asset=>{const body=asset.querySelector('[id="Vector"]');return body?getComputedStyle(body).fill:null;});
