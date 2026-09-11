@@ -84,6 +84,17 @@ npm run dev
 - 设置中明确勾选「包含隐藏内容」后重新采集，隐藏正文可出现，节点标记 data-sourcepin-hidden=true。表单值、脚本和敏感属性仍不应出现。
 - 回到 Lite 元素形态时，不应误用整页预算或冒充已有 HTML。书签重装后测试，扩展需重新加载新版。
 
+## 整页样式覆盖、预览上限与 srcset
+
+沿用上一节的固定页与操作步骤（Lite → 三角 → 捕获整页 DOM）。
+
+- 单击掌机屏幕：预览面板应显示 Targets 与定位信息，不再出现 `Markdown exceeds 4194304 bytes`。固定页预览约 10.5 KiB；预览是有界摘要，不等于全文。
+- 点黄色 M 继续导出后下载 report.md：全文仍完整，约 2.2 MB，包含 Structure 与 `styleKey` 字段、Cleaned HTML 与 Scoped CSS；不能因为预览变小而缺章节。
+- 复制与下载口径不同：屏幕预览与 `Cmd/Ctrl+C` 得到摘要，下载得到全文。两者都不应泄露敏感值。
+- 解压 page.html 双击离线打开：第 1199 行的正文 `p` 与线上一致（font-size `16px`、color `rgb(32, 60, 49)`、display `block`、padding `0px`），shadow 与 template 内容同样有样式，页面无脚本、无外部请求。
+- 捕获的 `page.html` 内每个节点带 `sp-*` 类；相同签名的节点共用同一个 `sp-s-N` 规则。样式覆盖是有界代表采样：Degradations 里应能读到「采样了几个节点、覆盖了多少、多少节点没有捕获规则」，以及同签名可能被代表样式近似的说明。不要把它读成逐节点完整样式归档。
+- srcset 含逗号的 CDN 候选（如 `/cdn-cgi/image/width=128,quality=85,format=auto,fit=scale-down/...`）应作为单个 URL 保留：解压后 page.html 的 `srcset` 与 structure.json 中同一节点完全相等，assets.json 只列出真实抓取的候选数，不出现被错切出的 `quality`、`format`、`fit` 请求。非法描述符与 `javascript:`、`data:text/html` 候选被丢弃，token 查询参数脱敏。
+
 ## 离线包与取消检查
 
 - 固定页有 8,000 个 article，高度超过 100 万 px；默认字节预算会截断，Degradations 必须说明结构预算，不能将其说成采集了全部页面。
