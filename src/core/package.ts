@@ -1,3 +1,4 @@
+import {parseSrcset} from './srcset';
 import type {Capture} from '../types';
 import {renderMarkdown, type MarkdownOptions} from './markdown';
 import {RIGHTS_NOTICE, TOOL_VERSION} from './provenance';
@@ -78,6 +79,8 @@ export async function createPagePackage(captures:Capture[],options:Options={}):P
   const isBody=/^<body(?:\s|>)/i.test(capture.html);
   template.innerHTML=isBody?capture.html.replace(/^<body/i,'<div').replace(/<\/body>$/i,'</div>'):capture.html;
   const all=descendants(template.content);
+  const offlineSrcsets=new Map<string,string>();
+  const nodeKeys=new Set(capture.nodes.map(node=>node.key));
   for(const node of all){
    if(['script','iframe','object','embed','link','meta','base'].includes(node.localName)){node.remove();continue;}
    for(const attr of [...node.attributes]){
@@ -85,7 +88,16 @@ export async function createPagePackage(captures:Capture[],options:Options={}):P
     if(/^on/.test(name)||['srcdoc','autofocus','autoplay','action','formaction','ping'].includes(name)){node.removeAttribute(attr.name);continue;}
     if(name==='style'){node.setAttribute('style',await css(attr.value,capture.meta.url));continue;}
     if(name==='srcset'){
-     const parts=[];for(const candidate of attr.value.split(',')){const [url,...descriptor]=candidate.trim().split(/\s+/);parts.push(`${await resource(url,capture.meta.url)} ${descriptor.join(' ')}`.trim());}node.setAttribute(name,parts.join(', '));continue;
+     const parts=[];
+     for(const {url,descriptor} of parseSrcset(attr.value)){
+      const safe=safeAssetUrl(url,capture.meta.url);if(!safe)continue;
+      parts.push(`${await resource(safe,capture.meta.url)}${descriptor?' '+descriptor:''}`);
+     }
+     const value=parts.join(', ');node.setAttribute(name,value);
+     // node.key remains the unique markup identifier; styleKey is shared.
+     const key=[...node.classList].reverse().find(token=>nodeKeys.has(token));
+     if(key)offlineSrcsets.set(key,value);
+     continue;
     }
     if(['src','href','xlink:href','poster','background'].includes(name)){
      if((node.localName==='img' && name==='src') || node.localName==='image' || name==='poster' || name==='background')node.setAttribute(attr.name,await resource(attr.value,capture.meta.url));
@@ -98,7 +110,7 @@ export async function createPagePackage(captures:Capture[],options:Options={}):P
   body=isBody?body.replace(/^<div/i,'<body').replace(/<\/div>$/i,'</body>'):`<body>${body}</body>`;
   const styles=await css(capture.css,capture.meta.url);
   files[filename]=check(`<!doctype html>\n<html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${escapeHtml(csp)}"><base href="${escapeHtml(capture.meta.url)}"><meta name="generator" content="SourcePin ${TOOL_VERSION}"><meta name="rights" content="${RIGHTS_NOTICE}"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(capture.meta.title)}</title><style>${embeddedCss(styles)}</style></head>${body}</html>`,limits.maxHtmlBytes,'HTML');
-  prepared.push({...capture,degradations:[...capture.degradations,`Offline file: ${filename}; scripts, frames, navigation and external font/media dependencies disabled; only embedded images can load. CSS is sampled, not a full stylesheet archive.`,...assets.filter(a=>a.status==='failed').map(a=>`Resource failed: ${a.url} — ${a.reason}; placeholder used.`),`Export limits: ZIP ${limits.maxZipBytes}, HTML ${limits.maxHtmlBytes}, Markdown ${limits.maxReportBytes} bytes; images ${limits.maxAssets}, individual ${limits.maxAssetBytes}, total ${limits.maxAssetTotalBytes} bytes, ${limits.timeoutMs} ms.`]});
+  prepared.push({...capture,nodes:capture.nodes.map(node=>offlineSrcsets.has(node.key)?{...node,attributes:{...node.attributes,srcset:offlineSrcsets.get(node.key)!}}:node),degradations:[...capture.degradations,`Offline file: ${filename}; scripts, frames, navigation and external font/media dependencies disabled; only embedded images can load. CSS is sampled, not a full stylesheet archive.`,...assets.filter(a=>a.status==='failed').map(a=>`Resource failed: ${a.url} — ${a.reason}; placeholder used.`),`Export limits: ZIP ${limits.maxZipBytes}, HTML ${limits.maxHtmlBytes}, Markdown ${limits.maxReportBytes} bytes; images ${limits.maxAssets}, individual ${limits.maxAssetBytes}, total ${limits.maxAssetTotalBytes} bytes, ${limits.timeoutMs} ms.`]});
  }
  files['structure.json']=JSON.stringify(prepared.map(({id,meta,target,nodes,degradations})=>({id,meta,target,nodes,degradations})),null,2);
  files['assets.json']=JSON.stringify({toolVersion:TOOL_VERSION,rights:RIGHTS_NOTICE,limits,rawBytes:rawTotal,assets},null,2);

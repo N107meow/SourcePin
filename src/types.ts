@@ -12,7 +12,7 @@ export interface Locator {
 }
 export interface FrameworkInfo { framework: string; components: string[]; props: Record<string, string>; source?: string }
 export interface NodeSnapshot {
-  key: string; depth: number; tag: string; attributes: Record<string, string>; text: string;
+  key: string; styleKey?: string; depth: number; tag: string; attributes: Record<string, string>; text: string;
   styles: Styles; rect: Rect; pseudo: Record<string, Styles>;
 }
 export interface Asset { kind: string; url: string; width?: number; height?: number }

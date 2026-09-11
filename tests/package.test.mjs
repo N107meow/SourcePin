@@ -47,3 +47,28 @@ test('resource count, streaming bytes, time and CORS failures are auditable; fet
  assert.equal(reads.length,4);assert.ok(reads.every(headers=>!headers.cookie && !headers.referer));
  await page.close();
 });
+
+test('CDN srcset exports exactly two real resources with identical HTML and structure candidates',async()=>{
+ const page=await browser.newPage();const reads=[];
+ await page.route('**/*',route=>{
+  if(route.request().isNavigationRequest())return route.fulfill({contentType:'text/html',body:'<p>CDN fixture</p>'});
+  reads.push(route.request().url());return route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>'});
+ });
+ try{
+  await page.goto('https://fixture.test/page');await page.addScriptTag({content:code});
+  const bytes=await page.evaluate(async()=>{
+   const holder=document.createElement('template');
+   holder.innerHTML='<img srcset="/cdn-cgi/image/width=128,quality=85,format=auto,fit=scale-down/https://cloud.example.com/a.webp 128w, /cdn-cgi/image/width=256,quality=85,format=auto,fit=scale-down/https://cloud.example.com/a.webp 256w">';
+   document.body.append(holder);
+   const capture=await Bundle.captureElement(document.body,{kind:'page',mode:'lite'});
+   return [...new Uint8Array(await (await Bundle.createPagePackage([capture])).arrayBuffer())];
+  });
+  const files=unzip(bytes),nodes=JSON.parse(files['structure.json'])[0].nodes;
+  const srcset=await page.evaluate(html=>{const t=document.createElement('template');t.innerHTML=html;return t.content.querySelector('template').content.querySelector('img').getAttribute('srcset')},files['page.html'].toString());
+  assert.equal(srcset,nodes.find(n=>n.tag==='img').attributes.srcset);
+  assert.equal((srcset.match(/data:image\/svg\+xml;base64,/g)||[]).length,2);
+  assert.equal(reads.length,2);
+  assert.ok(reads.every(url=>url.startsWith('https://fixture.test/cdn-cgi/image/width=')));
+  assert.equal(JSON.parse(files['assets.json']).assets.length,2);
+ }finally{await page.close();}
+});

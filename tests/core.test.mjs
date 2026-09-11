@@ -372,3 +372,77 @@ test('ancestor opacity is annotated separately and sampled styles are interned w
  assert.equal(result.child.target.visible,true);assert.equal(result.child.target.ancestorOpacityZero,true);assert.equal(result.capture.target.visible,false);assert.equal(result.shared,true);assert.match(result.capture.css,/\.sp-1,\.sp-2\{/);assert.match(result.capture.degradations.join('\n'),/visited 1500 rules, 0 candidate matches/);assert.match(result.capture.degradations.join('\n'),/500 nodes or 8 ms/);
  }finally{await page.close();}
 });
+
+test('page style signatures cover repeated deep nodes without exposing private signature inputs', async()=>{
+ const page=await fixture('<style>article{padding:8px;color:rgb(20,60,40)}h2{font-size:24px}p{font-size:16px}</style><main>'+Array.from({length:500},(_,i)=>`<article data-row="${i}"><h2>Heading ${i}</h2><p>Text ${i}</p></article>`).join('')+'<div class="secret-PRIVATE_CLASS" style="--token:PRIVATE_STYLE;color:red">Public</div><div class="secret-OTHER_CLASS" style="--token:OTHER_STYLE;color:red">Public 2</div></main>');
+ try{
+  const capture=await page.evaluate(()=>SourcePinCore.captureElement(document.body,{kind:'page',mode:'lite'}));
+  const sampled=capture.nodes.filter(n=>Object.keys(n.styles).length);
+  const keys=new Set(sampled.map(n=>n.styleKey));
+  const covered=capture.nodes.filter(n=>n.styleKey && keys.has(n.styleKey));
+  assert.ok(covered.length/capture.nodes.length>=.8);
+  assert.ok(sampled.length<30);
+  assert.equal(new Set(capture.nodes.map(n=>n.key)).size,capture.nodes.length);
+  assert.ok(capture.nodes.every(n=>/^sp-s-\d+$/.test(n.styleKey)));
+  assert.equal(capture.nodes.at(-1).styleKey,capture.nodes.at(-2).styleKey);
+  assert.doesNotMatch(JSON.stringify(capture),/PRIVATE_CLASS|PRIVATE_STYLE|OTHER_CLASS|OTHER_STYLE/);
+  assert.match(capture.degradations.join('\n'),/representative.*approximation/i);
+  assert.match(capture.capabilities.computedStyles.reason,/covered.*uncovered/i);
+  const original=await page.locator('[data-row="499"] p').evaluate(el=>{const s=getComputedStyle(el);return [s.fontSize,s.color,s.display,s.padding]});
+  await page.setContent(`<style>${capture.css}</style>${capture.html}`);
+  assert.deepEqual(await page.locator('[data-row="499"] p').evaluate(el=>{const s=getComputedStyle(el);return [s.fontSize,s.color,s.display,s.padding]}),original);
+ }finally{await page.close();}
+});
+
+test('capture style cache is per invocation and separates normal and pseudo styles',async()=>{
+ const page=await fixture('<style>p::before{content:"Marker";color:red}</style><main><p>Text</p></main>');
+ try{
+  const result=await page.evaluate(async()=>{
+   const original=window.getComputedStyle.bind(window),reads=new Map();
+   window.getComputedStyle=(el,pseudo)=>{if(el.localName==='p'){const key=pseudo||'normal';reads.set(key,(reads.get(key)||0)+1)}return original(el,pseudo)};
+   const first=await SourcePinCore.captureElement(document.body,{kind:'page',mode:'lite'});
+   const counts=Object.fromEntries(reads);document.querySelector('p').style.color='rgb(1, 2, 3)';
+   const second=await SourcePinCore.captureElement(document.body,{kind:'page',mode:'lite'});
+   return {counts,first:first.nodes.find(n=>n.tag==='p'),second:second.nodes.find(n=>n.tag==='p')};
+  });
+  assert.equal(result.counts.normal,1);assert.equal(result.counts['::before'],1);assert.equal(result.counts['::after'],1);
+  assert.equal(result.first.pseudo['::before'].color,'rgb(255, 0, 0)');
+  assert.equal(result.second.styles.color,'rgb(1, 2, 3)');
+ }finally{await page.close();}
+});
+
+test('srcset preserves CDN URL commas while sanitizing every candidate and rejecting bad descriptors',async()=>{
+ const page=await fixture('<p>Srcset</p>');
+ try{
+  const result=await page.evaluate(()=>{
+   const img=document.createElement('img');
+   img.setAttribute('srcset','/cdn-cgi/image/width=128,quality=85,format=auto,fit=scale-down/https://cloud.example.com/a.webp 128w, /cdn-cgi/image/width=256,quality=85,format=auto,fit=scale-down/https://cloud.example.com/a.webp 256w');
+   const cdn=SourcePinCore.safeAttributes(img).attributes.srcset;
+   img.setAttribute('srcset','javascript:alert(1) 1x, data:text/html,<svg/onload=alert(1)> 2x, /safe.png?token=PRIVATE_URL 3x, /invalid.png 1x 2x, /bad.png calc(1, 2), /plain.png, /last.png 4x');
+   return {cdn,safe:SourcePinCore.safeAttributes(img).attributes.srcset};
+  });
+  assert.equal((result.cdn.match(/https:\/\/fixture.test\//g)||[]).length,2);
+  assert.equal((result.cdn.match(/cdn-cgi\/image\/width=/g)||[]).length,2);
+  assert.doesNotMatch(result.cdn,/https:\/\/fixture.test\/(?:quality|format|fit)=/);
+  assert.doesNotMatch(result.safe,/javascript|data:text|PRIVATE_URL|invalid.png|bad.png/);
+  assert.match(result.safe,/token=%5Bredacted%5D 3x/);
+  assert.match(result.safe,/plain.png, https:\/\/fixture.test\/last.png 4x/);
+ }finally{await page.close();}
+});
+
+test('shared signatures in separate shadow roots preserve CSS and stay within the capture byte ceiling',async()=>{
+ const page=await fixture('<main></main>');
+ try{
+  const result=await page.evaluate(async()=>{
+   for(let i=0;i<80;i++){const host=document.createElement('widget-box');document.querySelector('main').append(host);host.attachShadow({mode:'open'}).innerHTML='<span style="padding:8px;color:rgb(20,60,40)">Shadow text</span>';}
+   return SourcePinCore.captureElement(document.body,{kind:'page',mode:'lite',maxBytes:131072});
+  });
+  assert.ok(Buffer.byteLength(result.html+result.css+JSON.stringify(result.nodes))<=131072);
+  assert.match(result.degradations.join('\n'),/byte budget/);
+  const offline=await browser.newPage();
+  await offline.setContent(`<style>${result.css}</style>${result.html}`);
+  // setContent parses declarative shadow DOM; every exported root receives shared rules.
+  const styles=await offline.locator('widget-box span').evaluateAll(nodes=>nodes.map(el=>[getComputedStyle(el).padding,getComputedStyle(el).color]));
+  assert.ok(styles.length>1);assert.ok(styles.every(([padding,color])=>padding==='8px'&&color==='rgb(20, 60, 40)'));await offline.close();
+ }finally{await page.close();}
+});

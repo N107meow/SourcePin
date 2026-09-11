@@ -21,8 +21,10 @@ export function peerSelector(parent: Element, tag: string): string {
 export function parentElementOrHost(element: Element): Element | null {
   return element.parentElement || ((element.getRootNode() as ShadowRoot).host ?? null);
 }
-export function hiddenByStyle(element: Element): boolean {
+export type StyleReader = (element: Element, pseudo?: string) => CSSStyleDeclaration | undefined;
+export const readStyle: StyleReader = (element, pseudo) => element.ownerDocument.defaultView?.getComputedStyle(element, pseudo);
+export function hiddenByStyle(element: Element, read: StyleReader = readStyle): boolean {
   if (element.localName === 'template') return false;
-  const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const style = read(element);
   return element.hasAttribute('hidden') || style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse';
 }

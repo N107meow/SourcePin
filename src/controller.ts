@@ -71,7 +71,7 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     void platform.saveSettings(settings).catch(()=>ui.toast('引导记录未能保存，本次使用不会再次显示'));
   }
 
-  function preview(){try{return markdown();}catch(error){return error instanceof Error?error.message:String(error);}}
+  function preview(){try{return markdown(true);}catch(error){return error instanceof Error?error.message:String(error);}}
   function resetSelection(){
     exporting?.abort();while(ui.closePanel()){}
     recorder?.dispose();recorder=undefined;recorded=undefined;

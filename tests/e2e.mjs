@@ -63,11 +63,17 @@ try{
   const pro=await page.evaluate(()=>navigator.clipboard.readText());assert.match(pro,/workspace-card/);
   results.push('Pro passive recording preserves real page interaction');
   await root.locator('.screen').click();
-  const full=await root.locator('.preview').textContent();await writeFile('artifacts/example-pro.md',full);
-  assert.match(full,/State Machine/);assert.match(full,/aria-expanded|class/);
-  assert.doesNotMatch(full,/SOURCEPIN_TEST_PASSWORD|SOURCEPIN_TEST_TOKEN/);
+  const preview=await root.locator('.preview').textContent();await writeFile('artifacts/example-pro-preview.md',preview);
+  assert.ok(Buffer.byteLength(preview)<=15*1024);
+  assert.match(preview,/Recording Summary/);assert.match(preview,/aria-expanded|class/);
+  assert.doesNotMatch(preview,/SOURCEPIN_TEST_PASSWORD|SOURCEPIN_TEST_TOKEN/);
   await page.screenshot({path:'artifacts/03-pro-preview.png'});
-  results.push('Full Pro preview includes recorded transition evidence');
+  const proDownload=page.waitForEvent('download');await root.locator('.download').click();await confirmExport(page);
+  const proFile=await proDownload;await proFile.saveAs('artifacts/example-pro.md');
+  const full=await readFile('artifacts/example-pro.md','utf8');
+  assert.match(full,/## State Machine/);assert.match(full,/aria-expanded|class/);
+  assert.doesNotMatch(full,/SOURCEPIN_TEST_PASSWORD|SOURCEPIN_TEST_TOKEN/);
+  results.push('Bounded Pro preview and full downloaded report preserve recorded transition evidence');
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await root.waitFor({state:'detached'});
@@ -204,6 +210,10 @@ try{
     const captureBytes=Buffer.byteLength(rawHtml+rawCss+JSON.stringify(captured.nodes));
     assert.ok(captureBytes<=meta.budgets.maxBytes);assert.ok(zipBytes.length<=16*1024*1024);assert.ok(files['page.html'].length<=8*1024*1024);
     assert.equal(structure.target.siblingCount,2);
+    const sampled=captured.nodes.filter(node=>Object.keys(node.styles).length).length;
+    const styleBytes=[...files['page.html'].toString().matchAll(/<style>([\s\S]*?)<\/style>/g)].reduce((sum,match)=>sum+Buffer.byteLength(match[1]),0);
+    assert.ok(styleBytes<=35824,`Inline CSS ${styleBytes} exceeds baseline 35824`);
+    const deepStyles=await whole.locator('[data-row="1199"] p').evaluate(el=>{const s=getComputedStyle(el);return [s.fontSize,s.color,s.display,s.padding]});
     const offline=await context.newPage();let requests=0;
     await offline.route(/^https?:/,route=>{requests++;return route.abort();});
     await offline.goto(pathToFileURL(resolve(directory,'page.html')).href);
@@ -212,9 +222,22 @@ try{
     assert.match(await offline.locator('template:not([shadowrootmode])').evaluate(el=>el.content.textContent),/Template public fixture/);
     await offline.waitForFunction(()=>document.querySelector('img').naturalWidth>0);
     assert.equal(await offline.locator('script').count(),0);assert.equal(requests,0);
+    const coverage=await offline.evaluate(()=>{
+      let nodes=0,covered=0;
+      const visit=(root,inherited=[])=>{
+        const selectors=[...inherited,...[...(root.styleSheets??[])].flatMap(sheet=>[...sheet.cssRules].filter(rule=>rule.selectorText && !rule.selectorText.includes('::')).map(rule=>rule.selectorText))];
+        for(const el of root.querySelectorAll('*')){
+          if([...el.classList].some(name=>/^sp-\d+$/.test(name))){nodes++;if(selectors.some(selector=>el.matches(selector)))covered++;}
+          if(el.shadowRoot)visit(el.shadowRoot);
+          if(el.localName==='template')visit(el.content,selectors);
+        }
+      };visit(document);return {nodes,covered,ratio:covered/nodes};
+    });
+    assert.ok(coverage.ratio>=.8);
+    assert.deepEqual(await offline.locator('[data-row="1199"] p').evaluate(el=>{const s=getComputedStyle(el);return [s.fontSize,s.color,s.display,s.padding]}),deepStyles);
     await offline.screenshot({path:`artifacts/offline-${adapter}.png`});await offline.close();
-    pageEvidence.push({adapter,nodes:structure.nodes.length,captureBytes,zipBytes:zipBytes.length,htmlBytes:files['page.html'].length,reportBytes:Buffer.byteLength(report),siblingCount:structure.target.siblingCount,externalRequests:requests,degradations:captured.degradations,meta});
-    await root.locator('.screen').click();await whole.screenshot({path:`artifacts/page-${adapter}.png`});
+    pageEvidence.push({adapter,sampled,styleBytes,coverage,deepStyles,nodes:structure.nodes.length,captureBytes,zipBytes:zipBytes.length,htmlBytes:files['page.html'].length,reportBytes:Buffer.byteLength(report),siblingCount:structure.target.siblingCount,externalRequests:requests,degradations:captured.degradations,meta});
+    await root.locator('.screen').click();const previewBytes=Buffer.byteLength(await root.locator('.preview').textContent());assert.ok(previewBytes<=15*1024);pageEvidence.at(-1).previewBytes=previewBytes;await whole.screenshot({path:`artifacts/page-${adapter}.png`});
     await whole.keyboard.press('Escape');await whole.keyboard.press('Escape');await whole.close();
     results.push(`${adapter}: Lite whole-page ZIP opens offline with images and shadow/template, zero requests, explicit budget cutoff`);
   }

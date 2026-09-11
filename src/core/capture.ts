@@ -1,7 +1,7 @@
 import { createStyleIndex } from './style-index';
 import { TOOL_VERSION, RIGHTS_NOTICE } from './provenance';
 import type { Asset, Capture, CaptureOptions, NodeSnapshot, Rect, Styles } from '../types';
-import { excluded, visibleChildren, hiddenByStyle, parentElementOrHost } from './dom';
+import { excluded, visibleChildren, hiddenByStyle, parentElementOrHost, readStyle, type StyleReader } from './dom';
 import { generateLocators } from './locators';
 import { safeAssetUrl, safeAttributes, safeDeclarations, safeDocumentUrl, safeStyleValue, safeText } from './privacy';
 
@@ -33,20 +33,20 @@ function rectOf(element: Element): Rect {
   return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
 }
 
-export function sampleStyles(element: Element): Styles {
+export function sampleStyles(element: Element, read: StyleReader = readStyle): Styles {
   const view = element.ownerDocument.defaultView;
   if (!view) return {};
-  const computed = view.getComputedStyle(element);
+  const computed = read(element)!;
   return Object.fromEntries(STYLE_PROPERTIES.map((property) => [property, safeStyleValue(computed.getPropertyValue(property), element.ownerDocument.baseURI)]).filter(([, value]) => value));
 }
 
-function pseudoStyles(element: Element): Record<string, Styles> {
+function pseudoStyles(element: Element, read: StyleReader = readStyle): Record<string, Styles> {
   const result: Record<string, Styles> = {};
   const view = element.ownerDocument.defaultView;
   if (!view) return result;
   for (const pseudo of ['::before', '::after']) {
     try {
-      const computed = view.getComputedStyle(element, pseudo);
+      const computed = read(element, pseudo)!;
       const content = computed.getPropertyValue('content');
       if (content && content !== 'none' && content !== 'normal') {
         result[pseudo] = Object.fromEntries(['content','display','position','color','background','background-image','font','width','height'].map((property) => [property, safeStyleValue(computed.getPropertyValue(property), element.ownerDocument.baseURI)]).filter(([, value]) => value));
@@ -56,9 +56,9 @@ function pseudoStyles(element: Element): Record<string, Styles> {
   return result;
 }
 
-function isVisible(element: Element): boolean {
+function isVisible(element: Element, read: StyleReader = readStyle): boolean {
   for (let current: Element | null = element; current; current = parentElementOrHost(current)) {
-    const styles = current.ownerDocument.defaultView?.getComputedStyle(current);
+    const styles = read(current);
     if (!styles || styles.display === 'none' || styles.visibility === 'hidden' || styles.visibility === 'collapse' || (current===element && Number(styles.opacity) === 0)) return false;
   }
   const rect = element.getBoundingClientRect();
@@ -201,19 +201,35 @@ export async function captureElement(element: Element, options: CaptureOptions):
   const nodes: NodeSnapshot[]=[], assets: Asset[]=[], degradations: string[]=[];
   let hiddenExcluded=0,hiddenIncluded=0,filtered=0,attributeFiltered=0,depthLimited=false,byteLimited=false;
   let structureBytes=2,styleBytes=0,shadowCount=0,iframeCount=0;
-  const signatures=new Set<string>();
+  // Capture-local cache: normal and pseudo declarations are distinct CSSOM objects.
+  const computedCache=new WeakMap<Element,Map<string,CSSStyleDeclaration>>();
+  const read: StyleReader=(el,pseudo='')=>{
+    let entry=computedCache.get(el);if(!entry){entry=new Map();computedCache.set(el,entry);}
+    if(!entry.has(pseudo)){const style=readStyle(el,pseudo || undefined);if(style)entry.set(pseudo,style);}
+    return entry.get(pseudo);
+  };
+  const signatures=new Map<string,string>();
+  const representatives=new Map<string,NodeSnapshot>();
+  const attempted=new Set<string>();
+  const shadowStyles=new WeakMap<Node,Set<string>>();
+  const safeIdentity=new WeakMap<Element,string>();
+  const identity=(el:Element,attributes?:Record<string,string>)=>{
+    let value=safeIdentity.get(el);
+    if(value===undefined){const safe=attributes??safeAttributes(el,document.baseURI).attributes;value=JSON.stringify([el.localName,safe.class??'',safe.id??'',safe.style??'']);safeIdentity.set(el,value);}
+    return value;
+  };
   const stylePool=new Map<string,Styles>();
   const intern=(styles:Styles)=>{const key=JSON.stringify(styles);const existing=stylePool.get(key);if(existing)return existing;stylePool.set(key,styles);return styles;};
   let yieldedAt=performance.now(),yields=0;
   const removedNames=new Map<string,number>();
   const pending: Array<{element:Element;depth:number;hidden:boolean}>= [{element,depth:0,hidden:false}];
   let ancestorHidden=false;
-  for(let parent=parentElementOrHost(element);parent;parent=parentElementOrHost(parent))ancestorHidden ||= hiddenByStyle(parent);
+  for(let parent=parentElementOrHost(element);parent;parent=parentElementOrHost(parent))ancestorHidden ||= hiddenByStyle(parent,read);
   while(pending.length && nodes.length<maxNodes){
     abort(options.signal);
     const current=pending.pop()!,el=current.element;
     if(excluded(el)){filtered++;continue;}
-    const hidden=current.hidden || (current.depth===0 && ancestorHidden) || hiddenByStyle(el);
+    const hidden=current.hidden || (current.depth===0 && ancestorHidden) || hiddenByStyle(el,read);
     if(hidden && !options.includeHidden){hiddenExcluded++;continue;}
     if(hidden)hiddenIncluded++;
     const audit=safeAttributes(el,document.baseURI), attributes=audit.attributes;
@@ -223,21 +239,34 @@ export async function captureElement(element: Element, options: CaptureOptions):
     const key=`sp-${nodes.length}`;
     const text=directTextNodes(el).map(node=>node.data).join('').replace(/\s+/g,' ').trim().slice(0,120);
     const snapshot: NodeSnapshot={key,depth:current.depth,tag:el.localName,attributes,text,styles:{},rect:rectOf(el),pseudo:{}};
-    const signature=el.localName+'.'+(attributes.class ?? '');
-    const representative=current.depth<=3 || !signatures.has(signature);
-    signatures.add(signature);
-    if(sampled.size<maxStyleNodes && (kind!=='page' || representative)){
-      const styles=sampleStyles(el),pseudo=pseudoStyles(el);
-      const cost=byteLength(JSON.stringify({styles,pseudo}))*2;
+    if(kind==='page'){
+      const ancestry=[identity(el,attributes)];
+      for(let parent=parentElementOrHost(el),depth=0;parent && depth<2;parent=parentElementOrHost(parent),depth++)ancestry.push(identity(parent));
+      const signature=JSON.stringify(ancestry);
+      if(!signatures.has(signature))signatures.set(signature,`sp-s-${signatures.size}`);
+      snapshot.styleKey=signatures.get(signature)!;
+    }
+    if(sampled.size<maxStyleNodes && (!snapshot.styleKey || !attempted.has(snapshot.styleKey))){
+      if(snapshot.styleKey)attempted.add(snapshot.styleKey);
+      const styles=sampleStyles(el,read),pseudo=pseudoStyles(el,read);
+      const cost=byteLength(nodeCss({...snapshot,styles,pseudo}));
       if(styleBytes+cost<=maxBytes/4){snapshot.styles=intern(styles);snapshot.pseudo=Object.fromEntries(Object.entries(pseudo).map(([key,value])=>[key,intern(value)]));styleBytes+=cost;}
     }
     // Reserve HTML skeleton, direct-text markers and per-node CSS before text.
     // JSON nodes + HTML + CSS share this byte ceiling; metadata is separate.
     const hasShadow=!!el.shadowRoot;
-    const cost=byteLength(JSON.stringify(snapshot))+1+byteLength(markupTags(snapshot).join(''))+directTextNodes(el).length*23+byteLength(nodeCss(snapshot))*2+(hasShadow?80:0);
+    const root=el.getRootNode(),styleKey=snapshot.styleKey??snapshot.key;
+    let shadowExtra=0;
+    if((root as ShadowRoot).host){
+      const keys=shadowStyles.get(root)??new Set<string>();
+      const representative=snapshot.styleKey?representatives.get(snapshot.styleKey):undefined;
+      if(!keys.has(styleKey) && !Object.keys(snapshot.styles).length && representative)shadowExtra=byteLength(nodeCss(representative))+1;
+      keys.add(styleKey);shadowStyles.set(root,keys);
+    }
+    const cost=shadowExtra+byteLength(JSON.stringify(snapshot))+1+byteLength(markupTags(snapshot).join(''))+directTextNodes(el).length*23+byteLength(nodeCss(snapshot))*2+(hasShadow?80:0);
     if(structureBytes+cost>maxBytes-1024){byteLimited=true;break;}
     structureBytes+=cost;nodes.push(snapshot);snapshots.set(el,snapshot);
-    if(Object.keys(snapshot.styles).length)sampled.set(el,snapshot);
+    if(Object.keys(snapshot.styles).length){sampled.set(el,snapshot);if(snapshot.styleKey)representatives.set(snapshot.styleKey,snapshot);}
     if(hasShadow)shadowCount++;
     if(el.localName==='iframe')iframeCount++;
     for(const asset of collectAssets(el,snapshot.styles))if(!assets.some(candidate=>candidate.url===asset.url))assets.push(asset);
@@ -275,13 +304,16 @@ export async function captureElement(element: Element, options: CaptureOptions):
   if([...snapshots.keys()].some(el=>el.matches('input,textarea,select,option')))degradations.push('Form values and control text were excluded.');
   if([...snapshots.keys()].some(el=>el.localName==='template'))degradations.push('Template contents retained as inert markup; computed layout is unavailable until instantiated.');
   if([...snapshots.keys()].some(el=>el.localName==='canvas'))degradations.push('Canvas pixels and rendering context were not inspected.');
-  if(full && sampled.size<nodes.length)degradations.push(`Computed styles sampled for ${sampled.size}/${nodes.length} nodes; unsampled computed/pseudo styles are absent. Inline styles remain when safe.`);
+  const covered=nodes.filter(node=>Object.keys(node.styles).length || (node.styleKey && representatives.has(node.styleKey))).length;
+  const coverage=`Sampled ${sampled.size}/${nodes.length} nodes; covered ${covered}/${nodes.length} (${nodes.length?(covered/nodes.length*100).toFixed(1):0}%); ${nodes.length-covered} uncovered nodes have no captured computed/pseudo rules (safe inline styles and browser inheritance may still apply).`;
+  if(full)degradations.push(coverage);
+  if(kind==='page')degradations.push('Shared style signatures use sanitized tag/class/id/style and up to two ancestors. Representative style approximation: same-signature nodes may differ due to :nth-child, more distant ancestors, layout or state; their own computed/pseudo styles are not individually sampled.');
   if(full && !document.styleSheets.length)degradations.push('No readable stylesheet source was available; scoped CSS uses computed styles.');
   if(cssom.limited)degradations.push('CSSOM sampling limit reached (2000 rules, 20 matches per sampled node, 8000 characters per keyframe); remaining source rules omitted.');
   if(full)degradations.push('Animations sampled at most 100 animations and 100 keyframes per animation; unobserved interactions and server behavior remain unknown.');
   if(cssom.inaccessible)degradations.push('One or more stylesheets were inaccessible; scoped CSS uses sampled computed styles for affected rules.');
   let ancestorOpacityZero=false;
-  for(let parent=parentElementOrHost(element);parent;parent=parentElementOrHost(parent))if(Number(view.getComputedStyle(parent).opacity)===0)ancestorOpacityZero=true;
+  for(let parent=parentElementOrHost(element);parent;parent=parentElementOrHost(parent))if(Number(read(parent)!.opacity)===0)ancestorOpacityZero=true;
   if(ancestorOpacityZero)degradations.push('Ancestor opacity is zero; target visible reports its own opacity and layout, not ancestor animation state.');
   if(full)degradations.push(`Sampling policy: CSSOM up to 2000 rules, 20 matches per sampled node, 8000 characters per keyframe, 32768 supplementary CSS bytes; visited ${cssom.visited} rules, ${cssom.matches} candidate matches; ${stylePool.size} interned style sets. Yield every 500 nodes or 8 ms via scheduler.yield/setTimeout (${yields} yields).`);
   const siblings=element.parentElement?visibleChildren(element.parentElement):[element];
@@ -289,7 +321,7 @@ export async function captureElement(element: Element, options: CaptureOptions):
   const capabilities: Capture['capabilities']={
     markup:{status:markup.html?'present':'absent',reason:full?(markup.html?'Sanitized markup; see budgets and filtering below.':'No eligible markup within capture policy/budget.'):'Lite element capture does not collect markup (Lite 元素形态).'},
     css:{status:css.trim()?'present':'absent',reason:full?(css.trim()?'Scoped sampled styles; not a complete stylesheet archive.':'No CSS available within the independent style sampling/source budget.'):'Lite element capture does not serialize CSS.'},
-    computedStyles:{status:sampled.size?'present':'absent',count:sampled.size,total:nodes.length,reason:`Sampled ${sampled.size}/${nodes.length} nodes; independent style budget ${maxStyleNodes}.`},
+    computedStyles:{status:sampled.size?'present':'absent',count:sampled.size,total:nodes.length,reason:`${coverage} Independent representative sampling limit ${maxStyleNodes}; CSS byte budget ${maxBytes/4}.`},
     recording:{status:'absent',reason:'No interaction recording is attached to this capture.'},
     framework:{status:'absent',reason:'Framework metadata requires a platform adapter; not collected by the DOM core.'},
     screenshot:{status:'absent',reason:'No screenshot is embedded; screenshots are a separate explicit operation.'},
@@ -301,8 +333,8 @@ export async function captureElement(element: Element, options: CaptureOptions):
   return {
     id:globalThis.crypto?.randomUUID?.() ?? `capture-${Date.now()}`,timestamp:new Date().toISOString(),mode:options.mode,capabilities,
     meta:{toolVersion:TOOL_VERSION,rights:RIGHTS_NOTICE,captureKind:kind,documentHeight:Math.max(document.documentElement.scrollHeight,document.body?.scrollHeight ?? 0),documentElementRect:htmlRect,htmlRect,images:{total:images.length,complete:images.filter(img=>img.complete).length},budgets:{maxNodes,maxDepth,maxBytes,maxStyleNodes},url:safeDocumentUrl(document.URL),title:document.title,viewport:{width:view.innerWidth,height:view.innerHeight},dpr:view.devicePixelRatio,scroll:{x:view.scrollX,y:view.scrollY},reach:reachPath(element)},
-    target:{tag:element.localName,text:safeText(element,120,options.includeHidden),attributes:hiddenExcluded && !nodes.length?{}:safeAttributes(element).attributes,ancestors,childIndex:siblings.indexOf(element),typeIndex:siblings.filter(sibling=>sibling.localName===element.localName).indexOf(element),siblingCount:siblings.length,rect,visible:isVisible(element),ancestorOpacityZero,inViewport:rect.y+rect.height>0 && rect.x+rect.width>0 && rect.y<view.innerHeight && rect.x<view.innerWidth},
-    locators:generateLocators(element),nodes,html:markup.html,css,tokens:tokens(nodes),assets,
+    target:{tag:element.localName,text:safeText(element,120,options.includeHidden,read),attributes:hiddenExcluded && !nodes.length?{}:safeAttributes(element).attributes,ancestors,childIndex:siblings.indexOf(element),typeIndex:siblings.filter(sibling=>sibling.localName===element.localName).indexOf(element),siblingCount:siblings.length,rect,visible:isVisible(element,read),ancestorOpacityZero,inViewport:rect.y+rect.height>0 && rect.x+rect.width>0 && rect.y<view.innerHeight && rect.x<view.innerWidth},
+    locators:generateLocators(element,read),nodes,html:markup.html,css,tokens:tokens(nodes),assets,
     animations:full?[...collectAnimations(element,sampled),...cssom.keyframes.map(cssText=>({kind:'css-keyframes',cssText}))]:[],degradations,
   };
 }

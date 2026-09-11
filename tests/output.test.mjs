@@ -153,14 +153,18 @@ test('recorder leaves pre-start hover unobserved and cancels active after releas
   await page.setContent('<style>#target { transition: opacity 80ms } #target:active { opacity: .2 }</style><button id="target">Press</button><div id="outside">Outside</div>');
   await page.addScriptTag({ path: `${outdir.pathname}recorder.js` });
   await page.hover('#target');
+  const outside=await page.locator('#outside').boundingBox();
+  // Freeze recorder timers so driver latency cannot settle active before release.
+  await page.clock.install();
+  await page.clock.pauseAt(new Date(Date.now()+1000));
   await page.evaluate(() => { window.recorder = SourcePinRecorder.createRecorder(document.querySelector('#target')); });
   const initial = await page.evaluate(() => window.recorder.snapshot());
   assert.match(initial.states[0].condition, /^base @ viewport \d+x\d+; observed initial$/);
   assert.ok(initial.degradations.some((message) => message === 'Initial hover state was unobserved.'));
   await page.mouse.down();
-  await page.hover('#outside');
+  await page.mouse.move(outside.x+5,outside.y+5);
   await page.mouse.up();
-  await page.waitForTimeout(140);
+  await page.clock.runFor(140);
   const recording = await page.evaluate(() => window.recorder.stop());
   assert.ok(recording.states.some((state) => state.condition.startsWith('released @')));
   assert.equal(recording.states.some((state) => state.condition.startsWith('active:settled')), false);
@@ -258,4 +262,12 @@ test('full Markdown hard ceiling refuses oversized exports and mixed package lin
  const lean=capture({id:'lean',html:'',css:'',nodes:[]}),page=capture({id:'page',meta:{...capture().meta,captureKind:'page'}});
  const output=markdown.renderMarkdown([lean,page],{packageFiles:['page.html','page-2.html']});
  assert.match(output,/\[page-2.html\]\(\.\/page-2.html\)/);
+});
+
+test('over-4-MiB full report still yields a 15-KB summary while full download remains bounded',()=>{
+ const context=capture({html:'<p>'+('x'.repeat(5*1024*1024))+'</p>'});
+ assert.throws(()=>markdown.renderMarkdown([context]),/exceeds/);
+ const summary=markdown.renderMarkdown([context],{summary:true});
+ assert.ok(Buffer.byteLength(summary)<=15*1024);assert.match(summary,/## Targets/);
+ assert.doesNotMatch(summary,/exceeds/);
 });

@@ -177,3 +177,19 @@ test('export review reports local counts and data flow, cancellation and changed
   await page.getByTestId('review').click();await settled(page);await page.locator('.copy').click();await confirmExport(page);await page.waitForFunction(()=>!!window.copied);
  }finally{await browser.close();}
 });
+
+test('preview remains bounded for a capture whose full report exceeds 4 MiB; copy still uses the summary',async()=>{
+ const browser=await chromium.launch({headless:true});
+ try{
+  const page=await browser.newPage();await page.setContent('<button data-testid="huge-preview">Large context</button>');
+  await page.addScriptTag({content:await controllerFixture('pro',"async()=>({framework:'Fixture',components:[],props:{fixture:'x'.repeat(5*1024*1024)}})")});
+  await page.evaluate(()=>window.startTest());await page.getByTestId('huge-preview').click();await settled(page);
+  await page.locator('.screen').click();
+  const preview=await page.locator('.preview').textContent();
+  assert.match(preview,/## Targets/);assert.match(preview,/huge-preview/);
+  assert.ok(Buffer.byteLength(preview)<=15*1024);
+  assert.doesNotMatch(preview,/exceeds|捕获未完成|Error/);
+  await page.locator('.copy').click();await confirmExport(page);await page.waitForFunction(()=>!!window.copied);
+  assert.equal(await page.evaluate(()=>window.copied),preview);
+ }finally{await browser.close();}
+});

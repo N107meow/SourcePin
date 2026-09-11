@@ -1,4 +1,5 @@
-import { excluded, parentElementOrHost, hiddenByStyle } from './dom';
+import { parseSrcset } from './srcset';
+import { excluded, parentElementOrHost, hiddenByStyle, readStyle, type StyleReader } from './dom';
 const SENSITIVE_NAME = /(?:pass(?:word)?|secret|token|auth|session|cookie|csrf|credit|card|cvv|cvc|api[-_]?key|private[-_]?key)/i;
 // Field names such as "card" are sensitive; ordinary identity values such as
 // "workspace-card" are not credentials and must remain usable as locators.
@@ -46,9 +47,9 @@ export function safeDocumentUrl(value: string): string {
   return sanitizeUrl(value, value);
 }
 
-export function safeText(element: Element, limit = 120, includeHidden = false): string {
+export function safeText(element: Element, limit = 120, includeHidden = false, read: StyleReader = readStyle): string {
   if (element.matches(PRIVATE_CONTENT) || excluded(element)) return '';
-  if (!includeHidden) for(let current: Element | null = element; current; current = parentElementOrHost(current)) if(hiddenByStyle(current)) return '';
+  if (!includeHidden) for(let current: Element | null = element; current; current = parentElementOrHost(current)) if(hiddenByStyle(current, read)) return '';
   const walker = element.ownerDocument.createTreeWalker(element, 4);
   const parts: string[] = [];
   let textNode: Node | null;
@@ -57,7 +58,7 @@ export function safeText(element: Element, limit = 120, includeHidden = false): 
     const privateParent = parent?.closest(PRIVATE_CONTENT);
     let blocked = !!privateParent && element.contains(privateParent);
     for(let current: Element | null=parent; current && current!==element; current=parentElementOrHost(current)) {
-      if(excluded(current) || (!includeHidden && hiddenByStyle(current))) {blocked=true;break;}
+      if(excluded(current) || (!includeHidden && hiddenByStyle(current, read))) {blocked=true;break;}
     }
     if (!blocked) parts.push(textNode.textContent ?? '');
     if (parts.join(' ').length >= limit * 2) break;
@@ -87,10 +88,8 @@ export function safeDeclarations(style: CSSStyleDeclaration | undefined, base: s
   }).join(' ');
 }
 function safeSrcset(value: string, base: string): string {
-  return value.split(',').flatMap(candidate => {
-    const parts=candidate.trim().split(/\s+/);
-    if(parts.length>2 || (parts[1] && !/^(?:\d+(?:\.\d+)?x|\d+w)$/.test(parts[1]))) return [];
-    const url=safeAssetUrl(parts[0],base);
-    return url ? [`${url}${parts[1] ? ' '+parts[1] : ''}`] : [];
+  return parseSrcset(value).flatMap(candidate => {
+    const url=safeAssetUrl(candidate.url,base);
+    return url ? [`${url}${candidate.descriptor ? ' '+candidate.descriptor : ''}`] : [];
   }).join(', ');
 }

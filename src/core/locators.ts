@@ -1,3 +1,4 @@
+import { readStyle, type StyleReader } from './dom';
 import type { Locator } from '../types';
 import { visibleChildren, peerSelector } from './dom';
 import { safeAttributes, safeText } from './privacy';
@@ -83,7 +84,7 @@ export function validateLocators(element: Element, locators: Locator[]): Locator
   });
 }
 
-export function generateLocators(element: Element): Locator[] {
+export function generateLocators(element: Element, read: StyleReader = readStyle): Locator[] {
   const candidates: Locator[] = [];
   const attributes = safeAttributes(element).attributes;
   const identities = identityAttributes(element);
@@ -96,7 +97,7 @@ export function generateLocators(element: Element): Locator[] {
     candidates.push({ kind: 'css', value: `#${cssEscape(identities.id)}`, stability: DYNAMIC.test(identities.id) ? 'unstable' : 'stable', matches: null, verified: false });
   }
   const role = element.getAttribute('role') || ({ button: 'button', a: element.hasAttribute('href') ? 'link' : '' } as Record<string, string>)[element.localName];
-  const label = attributes['aria-label'] || safeText(element, 80);
+  const label = attributes['aria-label'] || safeText(element, 80, false, read);
   if (role && label) candidates.push({ kind: 'playwright', value: `getByRole(${JSON.stringify(role)}, { name: ${JSON.stringify(label)} })`, stability: 'medium', matches: null, verified: false, note: 'Semantic suggestion; requires a Playwright engine to verify.' });
 
   let anchor: Element | null = element.parentElement;

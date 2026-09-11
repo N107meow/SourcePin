@@ -107,7 +107,7 @@ function renderSection(name: typeof SECTION_NAMES[number], captures: Capture[], 
       break;
     case 'Locators': body = joined((capture) => json(capture.locators)); break;
     case 'Structure':
-      body = joined((capture) => json({ target: capture.target, nodes: capture.nodes.map(({ key, depth, tag, attributes, text }) => ({ key, depth, tag, attributes, text })) }));
+      body = joined((capture) => json({ target: capture.target, nodes: capture.nodes.map(({ key, styleKey, depth, tag, attributes, text }) => ({ key, styleKey, depth, tag, attributes, text })) }));
       break;
     case 'Cleaned HTML': body = joined((capture) => codeFence(capture.html || `<!-- ${unavailable} -->`, 'html')); break;
     case 'Scoped CSS': body = joined((capture) => codeFence(capture.css || `/* ${unavailable} */`, 'css')); break;
@@ -174,7 +174,7 @@ function renderCompactSummary(header: string, captures: Capture[], recording: Re
     id: compactString(capture.id, 80),
     locators: [...capture.locators].sort((left, right) => Number(right.verified) - Number(left.verified)).slice(0, 3).map((locator) => ({ ...locator, value: compactString(locator.value, 400) })),
   }));
-  const structure = selected.map((capture) => ({ id: compactString(capture.id, 80), nodes: capture.nodes.filter((node) => node.depth <= 2).slice(0, 24).map((node) => ({ key: compactString(node.key, 80), depth: node.depth, tag: compactString(node.tag, 40), text: compactString(node.text, 120), attributes: compactAttributes(node.attributes, 5) })) }));
+  const structure = selected.map((capture) => ({ id: compactString(capture.id, 80), nodes: capture.nodes.filter((node) => node.depth <= 2).slice(0, 24).map((node) => ({ key: compactString(node.key, 80), styleKey: node.styleKey, depth: node.depth, tag: compactString(node.tag, 40), text: compactString(node.text, 120), attributes: compactAttributes(node.attributes, 5) })) }));
   const sections = [
     `## Targets\n\n${json(targets)}`,
     `## Locators\n\n${json(locators)}`,
