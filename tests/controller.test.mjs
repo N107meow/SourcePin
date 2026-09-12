@@ -175,7 +175,7 @@ test('recording reaches Pro and starts in the same gesture from Lite',async()=>{
     await record.click();
     await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').dataset.mode==='pro');
     await settled(page);
-    assert.equal(await page.locator('sourcepin-inspector .mode-badge').textContent(),'PRO');
+    assert.match(await page.locator('sourcepin-inspector .settings-button').getAttribute('aria-label'),/当前 Pro/);
     assert.match(await page.locator('sourcepin-inspector .screen-status').textContent(),/录制中/);
     assert.equal(await page.getByRole('button',{name:'停止录制'}).isVisible(),true);
   }finally{await browser.close();}

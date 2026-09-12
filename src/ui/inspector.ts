@@ -50,7 +50,6 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
         <button class="hotspot gear" data-action="settings-panel" aria-label="打开设置"></button>
         <button class="inspector-close" data-action="close" aria-label="关闭 SourcePin">×</button>
         <div class="mode-picker" id="sourcepin-mode-picker" hidden><button class="mode-switch" data-action="mode" role="switch" aria-label="切换 Lite 或 Pro 模式"></button><span class="mode-label"></span></div>
-        <span class="mode-badge"></span>
       </div><div class="toast" role="status" aria-live="polite"></div>
     </div>`;
   document.documentElement.append(host);
@@ -292,12 +291,11 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
       '.screen': '预览捕获内容', '.settings-button': '选择 Lite 或 Pro 模式', '.capture': '打开画面采集', '.drag-handle': '拖动 SourcePin', '.mode-switch': '切换 Lite 或 Pro 模式',
     };
     Object.entries(aria).forEach(([selector, label]) => q<HTMLElement>(root, selector).setAttribute('aria-label', label));
-    // The mode is stated, not only coloured: the badge is always visible and
-    // the mode picker's own button repeats the current mode for assistive
-    // technology. The gear opens settings, so it carries no mode wording.
+    // The mode wording lives inside the picker, so it appears and disappears
+    // exactly with the switch instead of lingering on screen on its own. The
+    // picker button repeats the current mode for assistive technology, and the
+    // gear opens settings, so it carries no mode wording.
     const modeName = next.mode === 'lite' ? 'Lite' : 'Pro';
-    q<HTMLElement>(root, '.mode-badge').textContent = next.mode.toUpperCase();
-    q<HTMLElement>(root, '.mode-badge').setAttribute('aria-label', en ? `Current mode: ${modeName}` : `当前模式：${modeName}`);
     q<HTMLElement>(root, '.settings-button').setAttribute('aria-label', en ? `Choose Lite or Pro mode · currently ${modeName}` : `选择 Lite 或 Pro 模式 · 当前 ${modeName}`);
     q<HTMLElement>(root, '.settings-button').setAttribute('aria-expanded', String(!q<HTMLElement>(root, '.mode-picker').hidden));
     // Greying out is a capability statement, not a hiding place: the reason is

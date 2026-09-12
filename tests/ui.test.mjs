@@ -270,35 +270,45 @@ test('capture buttons state their missing capability instead of hiding it', asyn
   await page.close();
 });
 
-test('current mode is readable without opening the mode picker', async () => {
+test('the mode wording appears and disappears with the switch, and nothing lingers', async () => {
   const page = await fixture();
-  const badge = page.locator('sourcepin-inspector .mode-badge');
+  const label = page.locator('sourcepin-inspector .mode-label');
+  // Only text that is actually rendered counts: a hidden label still has a
+  // textContent, and leftover wording on screen is exactly the reported defect.
+  const renderedText = () => page.locator('sourcepin-inspector').evaluate(h => [...h.shadowRoot.querySelectorAll('*')]
+    .filter(el => el.children.length === 0 && el.getClientRects().length > 0)
+    .map(el => el.textContent.trim()).join(' '));
+  // Closed: neither the switch nor any mode wording is on screen.
   assert.equal(await page.locator('.mode-picker').isVisible(), false);
-  assert.equal(await badge.isVisible(), true);
-  assert.equal((await badge.textContent()).trim(), 'LITE');
-  // The badge used to sit at 246px, straddling the chassis bottom edge where it
-  // read as clipped stray text. It must clear the chassis entirely.
+  assert.equal(await label.isVisible(), false, 'no mode text while the switch is hidden');
+  assert.equal(await page.locator('sourcepin-inspector .mode-badge').count(), 0, 'the standalone badge is gone');
+  assert.doesNotMatch(await renderedText(), /LITE|PRO/, 'the console shows no mode wording at rest');
+  // Open: the switch and its label arrive together, still below the chassis.
+  await page.locator('.settings-button').click();
+  assert.equal(await page.locator('.mode-picker').isVisible(), true);
+  assert.equal(await label.isVisible(), true);
+  assert.equal((await label.textContent()).trim(), 'LITE');
+  assert.match(await renderedText(), /\bLITE\b/);
   const placement = await page.evaluate(() => {
     const root = document.querySelector('sourcepin-inspector').shadowRoot;
-    const badge = root.querySelector('.mode-badge').getBoundingClientRect();
+    const text = root.querySelector('.mode-label').getBoundingClientRect();
     const chassis = root.querySelector('.asset-lite').getBoundingClientRect();
-    return { clearsChassis: badge.top >= chassis.bottom, insideRobot: badge.bottom <= root.querySelector('.robot').getBoundingClientRect().bottom };
+    return { clearsChassis: text.top >= chassis.bottom, insideRobot: text.bottom <= root.querySelector('.robot').getBoundingClientRect().bottom };
   });
-  assert.deepEqual(placement, { clearsChassis: true, insideRobot: true }, 'the badge sits below the chassis, not on its bottom edge');
+  assert.deepEqual(placement, { clearsChassis: true, insideRobot: true }, 'the mode text sits below the chassis, not on its bottom edge');
+  // Switching mode updates the same label, and closing takes both away again.
+  // The fixture's switch only records the click, so the mode is installed the
+  // way the controller does it before the label is compared.
   await page.evaluate(() => ui.update({ mode: 'pro', status: '', count: 0, summary: '', copied: false,
     busy: false, recording: false, matched: false, markdown: '',
     settings: { mode: 'pro', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false },
     capabilities: { screenshot: true } }));
+  assert.equal((await label.textContent()).trim(), 'PRO');
+  assert.match(await renderedText(), /\bPRO\b/);
+  await page.locator('.settings-button').click();
   assert.equal(await page.locator('.mode-picker').isVisible(), false);
-  assert.equal((await badge.textContent()).trim(), 'PRO');
-  // Opening the picker puts the switch and its own label in the same row, so the
-  // badge yields instead of stacking a second copy of the mode on top of it.
-  await page.locator('.settings-button').click();
-  assert.equal(await page.locator('.mode-picker').isVisible(), true);
-  assert.equal(await badge.isVisible(), false, 'the open picker states the mode itself');
-  assert.equal((await page.locator('.mode-label').textContent()).trim(), 'PRO');
-  await page.locator('.settings-button').click();
-  assert.equal(await badge.isVisible(), true);
+  assert.equal(await label.isVisible(), false, 'closing the switch removes the mode text with it');
+  assert.doesNotMatch(await renderedText(), /LITE|PRO/, 'no mode wording is left behind after closing');
   await page.close();
 });
 
