@@ -15,7 +15,7 @@
 - `sourcepin-0.1.6-delivery.zip`：安装页、完整书签代码、已解压扩展、内核脚本与 `SHA256SUMS`。包内 `SHA256SUMS` 可逐个核对文件。
 - 本说明下方的 `SHA256SUMS`：该 ZIP 自身的 sha256。
 
-GitHub 自动生成的 “Source code” 压缩包用于开发，不包含构建产物（`dist/`、安装包）；需要时在仓库根目录运行 `npm ci && npm run build`，或直接 `npm run delivery`（会先自动构建并生成安装包目录）。
+GitHub 自动生成的 “Source code” 压缩包是完整源码（`source` 分支），用于开发与自行构建，不包含构建产物；需要时运行 `npm ci && npm run check`，或 `npm run delivery` 直接生成安装包目录。只想使用工具的话，上面那个 ZIP 就够了。
 
 ## 验证与边界
 
@@ -31,4 +31,4 @@ GitHub 自动生成的 “Source code” 压缩包用于开发，不包含构建
 
 ## 许可证
 
-[MIT](../blob/main/LICENSE)。导出内容（网页文本、图片、Logo）的权利仍归原站/原作者。
+[MIT](https://github.com/N107meow/SourcePin/blob/source/LICENSE)。导出内容（网页文本、图片、Logo）的权利仍归原站/原作者。
