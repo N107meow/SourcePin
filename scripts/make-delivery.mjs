@@ -23,6 +23,15 @@ import { ICON_SVG } from './make-icons.mjs';
 
 const version = JSON.parse(await readFile('package.json', 'utf8')).version;
 const out = `artifacts/sourcepin-${version}`;
+
+// A fresh clone has no dist/, so build it instead of failing on a missing file.
+// Building here also guarantees the package carries the core of the sources it
+// is built from, rather than whatever happened to be in dist/.
+if (process.env.SOURCEPIN_DELIVERY_SKIP_BUILD !== '1') {
+  const { spawnSync } = await import('node:child_process');
+  const built = spawnSync(process.execPath, ['scripts/build.mjs'], { stdio: 'inherit' });
+  if (built.status !== 0) throw new Error(`build failed with status ${built.status}; delivery not produced`);
+}
 await mkdir(out, { recursive: true });
 
 const bundle = async entry => (await build({
@@ -56,6 +65,9 @@ const rendered = page
 if (/\{\{[A-Z_]+\}\}/.test(rendered)) throw new Error(`install page still has placeholders: ${rendered.match(/\{\{[A-Z_]+\}\}/g)}`);
 if (/\.\/robot\.svg/.test(rendered)) throw new Error('install page still references robot.svg externally');
 await writeFile(`${out}/install.html`, rendered);
+const readme = await readFile('docs/DELIVERY-README.md', 'utf8');
+if (!readme.includes('{{VERSION}}')) throw new Error('docs/DELIVERY-README.md must use {{VERSION}}');
+await writeFile(`${out}/README.md`, readme.replaceAll('{{VERSION}}', version));
 
 // The unpacked extension, the raw bookmarklet and the core travel with it, plus
 // checksums so the folder can be verified after copying it anywhere.
