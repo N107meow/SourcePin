@@ -22,6 +22,6 @@
 5. 验证正式 HTTPS 安装页：显示书签栏、拖入标签、到另一普通网页点击书签、选中复制、两次 Esc、再次唤起。
 6. 后续更新时重新构建并发布页面，已有用户重新拖入并替换旧书签。
 
-当前只完成本地可发布产物，没有建立远程仓库或公开部署。GitHub README 的 HTML 净化使其不适合作为直接 javascript 拖拽入口，实际入口使用 GitHub Pages。
+当前源码与安装包已发布到 [N107meow/SourcePin](https://github.com/N107meow/SourcePin)，GitHub Pages 尚未启用。用户可从 [Releases](https://github.com/N107meow/SourcePin/releases) 下载离线安装包。GitHub README 的 HTML 净化使其不适合作为直接 javascript 拖拽入口，在线拖拽安装页需单独部署 GitHub Pages。
 
 参考：[GitHub Markup](https://github.com/github/markup)、[GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。

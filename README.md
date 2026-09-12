@@ -10,7 +10,7 @@ GitHub 自动生成的 Source code 压缩包用于开发，不包含构建产物
 
 ## 更新记录
 
-用户可感知的功能变化记录在 [`CHANGELOG.md`](./CHANGELOG.md)，与 git 标记（`v0.1.0`、`v0.1.1`、`v0.1.2`、`v0.1.3`、`v0.1.4`、`v0.1.5`）口径一致。
+用户可感知的功能变化见 [GitHub Releases](https://github.com/N107meow/SourcePin/releases)。
 
 ## 安装到浏览器书签栏（主要方式）
 
@@ -22,7 +22,7 @@ GitHub 自动生成的 Source code 压缩包用于开发，不包含构建产物
 
 GitHub 的仓库 README 会净化可执行链接，因此采用“仓库首页 → GitHub Pages 安装页 → 拖进书签栏”的路线。[GitHub Markup 说明](https://github.com/github/markup)、[GitHub Pages 说明](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。
 
-当前为本地验收阶段，已经生成可发布的 `dist/site/` 和 `dist/sourcepin-site.zip`，尚未公开上传。正式发布步骤见 [GitHub 分发说明](docs/PUBLISHING.md)。
+当前源码与安装包已在 GitHub 发布，GitHub Pages 尚未启用；可先从上方版本下载页获取离线安装包。Pages 安装页的部署步骤见 [GitHub 分发说明](docs/PUBLISHING.md)。
 
 ## Chrome 扩展（可选增强版）
 
@@ -129,7 +129,7 @@ npm run delivery  # 在 artifacts/sourcepin-<版本>/ 生成可直接分发的�
 
 打开 [本地验收页](http://127.0.0.1:4317) 可直接体验共享内核。书签版产物是 `dist/sourcepin.bookmarklet.txt`：它与扩展共用采集内核，但没有扩展截图和跨会话偏好保存，并且可能受目标页 CSP 限制。源码检出后须先构建生成 dist。
 
-现行能力契约与逐条验收规格见 [docs/ACCEPTANCE-SPEC.md](docs/ACCEPTANCE-SPEC.md)，手工步骤见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)，实测数字见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)。GitHub 发布所用账号、仓库和许可证将在用户验收后确定；当前仓库不会自行公开发布。
+现行能力契约与逐条验收规格见 [docs/ACCEPTANCE-SPEC.md](docs/ACCEPTANCE-SPEC.md)，手工步骤见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)，实测数字见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)。源码与安装包托管于 N107meow/SourcePin；许可证尚未决定，后续修改经用户确认后才会推送。
 
 ## 权利与合规
 
