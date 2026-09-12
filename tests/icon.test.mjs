@@ -35,3 +35,13 @@ test('the install page carries the square icon as its own favicon', async () => 
   // The page must stay self-contained for a GitHub Pages subpath.
   assert.doesNotMatch(match[1], /https?:/, 'the favicon needs no network fetch');
 });
+
+test('the install tag carries the square mark, not just text', async () => {
+  const text = await readFile('dist/site/index.html', 'utf8');
+  const tag = text.match(/<a id="bookmarklet"[\s\S]*?<\/a>/);
+  assert.ok(tag, 'the draggable install tag exists');
+  assert.match(tag[0], /class="tag-icon"/, 'the tag shows the square icon');
+  assert.match(tag[0], /viewBox="0 0 64 64"/);
+  assert.match(tag[0], /href="javascript:/, 'the tag is still the bookmarklet');
+  assert.match(tag[0], /draggable="true"/, 'the tag stays draggable');
+});
