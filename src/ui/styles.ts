@@ -3,13 +3,15 @@ export const INSPECTOR_CSS = `
 *, *::before, *::after { box-sizing: border-box; }
 button, input, select { font: inherit; }
 button { margin: 0; border: 0; color: inherit; cursor: pointer; }
-/* Console controls are hotspots laid over the artwork: a focus ring around an
-   invisible rectangle reads as a selection box, and a click followed by Escape
-   (the browser flips to keyboard modality) painted one on its own. Panel
-   controls keep a ring, because there the user navigates by keyboard. */
+/* Panel controls keep the boxed ring, because there the user navigates by
+   keyboard and the box is drawn on a real panel. */
 .panel button:focus-visible, .panel input:focus-visible, .panel select:focus-visible { outline: 3px solid #fff; box-shadow: 0 0 0 5px #1c1008; }
-/* No ring at all on the console's own controls, including the browser default. */
-.hotspot:focus-visible, .screen:focus-visible, .drag-handle:focus-visible, .inspector-close:focus-visible, .mode-switch:focus-visible { outline: none; }
+/* The console's controls are hotspots laid over the artwork, so the ring follows
+   the shape each one acts on - a glyph, the face plate, the handle - instead of
+   boxing the invisible rectangle, which reads as a stray selection. It exists
+   only under :focus-visible, so a plain mouse click still paints nothing. */
+.hotspot:focus-visible, .screen:focus-visible, .drag-handle:focus-visible,
+.inspector-close:focus-visible, .mode-switch:focus-visible, .screen-notice:focus-visible { outline: 3px solid #1c1008; outline-offset: 3px; }
 .stage { position: relative; width: 220px; height: 348px; user-select: none; touch-action: none; }
 .robot { position: absolute; left: 16px; top: 16px; width: 188px; height: 316px; }
 .asset { position: absolute; inset: 0 auto auto 0; display: block; width: 188px; height: 264px; object-fit: contain; pointer-events: none; }
@@ -38,8 +40,13 @@ button { margin: 0; border: 0; color: inherit; cursor: pointer; }
 .robot[data-mode="pro"] .screen-match { color: #a9002b; }
 .screen-summary { max-width: 112px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; opacity: .72; }
 .screen-count { position: absolute; right: 7px; top: 6px; min-width: 19px; padding: 2px 5px; color: white; background: #1c1008; border-radius: 10px; font-size: 9px; }
-.screen-notice { flex: none; margin-top: 3px; font-size: 9px; line-height: 12px; font-weight: 800; text-decoration: underline; opacity: .78; cursor: pointer; }
+/* The standing notice is its own control over the screen, so it carries the text
+   and the keyboard entry point; the screen keeps an invisible copy of the same
+   line to lay the display out exactly as before. */
+.screen-notice { position: absolute; padding: 0; border-radius: 6px; background: transparent; text-align: center; white-space: nowrap; font-size: 9px; line-height: 12px; font-weight: 800; text-decoration: underline; opacity: .78; cursor: pointer; }
 .screen-notice[hidden] { display: none; }
+.screen-notice-space { flex: none; margin-top: 3px; font-size: 9px; line-height: 12px; font-weight: 800; visibility: hidden; }
+.screen-notice-space[hidden] { display: none; }
 .screen-count:empty { display: none; }
 .mode-picker { position: absolute; left: 0; right: 0; top: 272px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
 .mode-picker[hidden] { display: none; }

@@ -3,7 +3,7 @@ import { TOOL_VERSION, RIGHTS_NOTICE } from './provenance';
 import type { Asset, Capture, CaptureOptions, NodeSnapshot, Rect, Styles } from '../types';
 import { excluded, visibleChildren, hiddenByStyle, parentElementOrHost, readStyle, type StyleReader } from './dom';
 import { generateLocators } from './locators';
-import { safeAssetUrl, safeAttributes, safeDeclarations, safeDocumentUrl, safeStyleValue, safeText } from './privacy';
+import { contentReferencesRemovedAttribute, safeAssetUrl, safeAttributes, safeDeclarations, safeDocumentUrl, safeStyleValue, safeText, unsafeDeclaration } from './privacy';
 
 const STYLE_PROPERTIES = [
   'display','position','inset','top','right','bottom','left','z-index','overflow','overflow-x','overflow-y',
@@ -37,23 +37,36 @@ export function sampleStyles(element: Element, read: StyleReader = readStyle): S
   const view = element.ownerDocument.defaultView;
   if (!view) return {};
   const computed = read(element)!;
-  return Object.fromEntries(STYLE_PROPERTIES.map((property) => [property, safeStyleValue(computed.getPropertyValue(property), element.ownerDocument.baseURI)]).filter(([, value]) => value));
+  return Object.fromEntries(STYLE_PROPERTIES.map((property) => {
+    const value = safeStyleValue(computed.getPropertyValue(property), element.ownerDocument.baseURI);
+    return [property, unsafeDeclaration(property, value) ? '' : value];
+  }).filter(([, value]) => value));
 }
 
-function pseudoStyles(element: Element, read: StyleReader = readStyle): Record<string, Styles> {
+const PSEUDO_PROPERTIES = ['content','display','position','color','background','background-image','font','width','height'] as const;
+
+/** Computed and pseudo styles share the attribute pass's verdict: a declaration
+ * that republishes a removed attribute, or that is itself sensitive, is dropped
+ * rather than trimmed, so no fragment of the original value can survive. */
+function pseudoStyles(element: Element, safe: Record<string,string>, read: StyleReader = readStyle): { styles: Record<string, Styles>; filtered: number } {
   const result: Record<string, Styles> = {};
+  let filtered = 0;
   const view = element.ownerDocument.defaultView;
-  if (!view) return result;
+  if (!view) return { styles: result, filtered };
   for (const pseudo of ['::before', '::after']) {
     try {
       const computed = read(element, pseudo)!;
       const content = computed.getPropertyValue('content');
-      if (content && content !== 'none' && content !== 'normal') {
-        result[pseudo] = Object.fromEntries(['content','display','position','color','background','background-image','font','width','height'].map((property) => [property, safeStyleValue(computed.getPropertyValue(property), element.ownerDocument.baseURI)]).filter(([, value]) => value));
-      }
+      if (!content || content === 'none' || content === 'normal') continue;
+      if (contentReferencesRemovedAttribute(content, element, safe, read)) { filtered++; continue; }
+      result[pseudo] = Object.fromEntries(PSEUDO_PROPERTIES.map((property) => {
+        const value = property === 'content' ? content.slice(0, 1000) : safeStyleValue(computed.getPropertyValue(property), element.ownerDocument.baseURI);
+        if (unsafeDeclaration(property, value)) { filtered++; return [property, '']; }
+        return [property, value];
+      }).filter(([, value]) => value));
     } catch { /* inaccessible pseudo styles are reported as absent */ }
   }
-  return result;
+  return { styles: result, filtered };
 }
 
 function isVisible(element: Element, read: StyleReader = readStyle): boolean {
@@ -199,7 +212,7 @@ export async function captureElement(element: Element, options: CaptureOptions):
   const document=element.ownerDocument,view=document.defaultView!;
   const snapshots=new Map<Element,NodeSnapshot>(), sampled=new Map<Element,NodeSnapshot>();
   const nodes: NodeSnapshot[]=[], assets: Asset[]=[], degradations: string[]=[];
-  let hiddenExcluded=0,hiddenIncluded=0,filtered=0,attributeFiltered=0,depthLimited=false,byteLimited=false;
+  let hiddenExcluded=0,hiddenIncluded=0,filtered=0,attributeFiltered=0,styleFiltered=0,depthLimited=false,byteLimited=false;
   let structureBytes=2,styleBytes=0,shadowCount=0,iframeCount=0;
   // Capture-local cache: normal and pseudo declarations are distinct CSSOM objects.
   const computedCache=new WeakMap<Element,Map<string,CSSStyleDeclaration>>();
@@ -248,7 +261,8 @@ export async function captureElement(element: Element, options: CaptureOptions):
     }
     if(sampled.size<maxStyleNodes && (!snapshot.styleKey || !attempted.has(snapshot.styleKey))){
       if(snapshot.styleKey)attempted.add(snapshot.styleKey);
-      const styles=sampleStyles(el,read),pseudo=pseudoStyles(el,read);
+      const styles=sampleStyles(el,read),pseudoSample=pseudoStyles(el,attributes,read),pseudo=pseudoSample.styles;
+      styleFiltered+=pseudoSample.filtered;
       const cost=byteLength(nodeCss({...snapshot,styles,pseudo}));
       if(styleBytes+cost<=maxBytes/4){snapshot.styles=intern(styles);snapshot.pseudo=Object.fromEntries(Object.entries(pseudo).map(([key,value])=>[key,intern(value)]));styleBytes+=cost;}
     }
@@ -301,6 +315,7 @@ export async function captureElement(element: Element, options: CaptureOptions):
   if(filtered)degradations.push(`${filtered} executable, private or tool subtrees filtered; content not captured.`);
   if(removedNames.size)degradations.push(`Removed attributes (${[...removedNames.values()].reduce((sum,n)=>sum+n,0)}): ${[...removedNames].sort().map(([name,n])=>`${name}: ${n}`).join(', ')}. Values are not retained in this audit.`);
   if(attributeFiltered)degradations.push(`${attributeFiltered} attributes filtered, normalized or redacted (including form values, event handlers and sensitive URL parameters).`);
+  if(styleFiltered)degradations.push(`${styleFiltered} computed or pseudo-element declarations omitted because they derive from filtered attributes or are themselves sensitive; remaining text and layout are unaffected.`);
   if([...snapshots.keys()].some(el=>el.matches('input,textarea,select,option')))degradations.push('Form values and control text were excluded.');
   if([...snapshots.keys()].some(el=>el.localName==='template'))degradations.push('Template contents retained as inert markup; computed layout is unavailable until instantiated.');
   if([...snapshots.keys()].some(el=>el.localName==='canvas'))degradations.push('Canvas pixels and rendering context were not inspected.');

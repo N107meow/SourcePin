@@ -1,5 +1,82 @@
 # SourcePin 整页 DOM、离线包与合规验证
 
+## 最新补充：只读审查发现的隐私/授权问题修复（v0.1.6）
+
+2026-09-12：针对只读审查报告（审查基线 `30baa6c`，v0.1.5）复现出的八项发现逐条修复。每条都先在本仓库用脚本复现，再改代码，再补断言用户可见结果的回归。**本轮实测**：`npm run check` 通过（类型检查、**128/128** 测试、生产构建），`npm run test:e2e` **16/16** 场景通过。环境：Node v24.16.0、Playwright Chromium 151.0.7922.34、macOS arm64。
+
+### 复现与修复前后
+
+| 发现 | 复现（修复前实测） | 修复后行为 |
+| --- | --- | --- |
+| F1 URL fragment 凭据 | `safeDocumentUrl('https://x.test/#access_token=ALPHA_CREDENTIAL_781')` 原样返回 | 返回 `#access_token=[redacted]`；`#/route?token=…`、`#apiKey=…`、查询串、userinfo 同样处理；`#section-2`、`#/dashboard/orders` 不变 |
+| F2 伪元素回读被删属性 | `data-token` 已从属性删除，`::before` 的 `content` 仍得到 `"ALPHA_CREDENTIAL_781"`，且写进 capture CSS（`cssHasCredential: true`） | 该伪元素整条省略，`cssHasCredential: false`；普通 `content:"ordinary label text"` 保留 |
+| F3 录制变化详情 | `style null -> "--api-key: abc987654;"` 出现在 transitions；selector 直接用原始 `id`/`class` | 变化详情为 `style content redacted`；含凭据的 class 记为 `[redacted]`；普通 `outline-color`、`class "state-open"`、`aria-expanded null -> "true"` 仍可读 |
+| F4 取消被算作已确认 | 干净内容首次取消后仍显示「已确认 · 声明」，第二次导出直接执行 | 取消/Esc 后无「已确认」提示，第二次导出仍弹确认；只有接受后同一份快照内免确认 |
+| F5 ShadowRoot 直接文本 | `Shadow leading <b>bold</b> trailing` 只序列化出 `bold` | 完整保留顺序与转义；字节预算与敏感子树排除规则不变 |
+| F6 图片占位尺寸 | 320×180 的图片在 `maxStyleNodes:0` 分支得到 80×40 占位 | 占位取该位置快照矩形；`50%`/`10rem` 不再被当作像素；无可用采集尺寸时才退回声明值 |
+| F7 shadow 内 iframe 点击穿透 | open shadow → 同源 iframe → button：原站 handler 执行（`clicked:1`），选择计数为空 | 原站 handler 不执行（`clicked: undefined`），选择计数 `1`；跨源限制不变 |
+| F8 焦点不可见 | `.hotspot` 等控件 `outline: none`，且测试固化了该行为 | Tab/Shift+Tab 每个控件都有可见焦点，面板打开后焦点进入、关闭后回到入口；纯鼠标点击仍不出现持久方框 |
+| S2 构建锁初始化竞争 | 静态确认：`mkdir` 成功到写 pid 之间，另一进程会删除"缺 pid"的锁 | 初始化状态 + 宽限期 + 所有者令牌，接管用原子 rename，释放前核对所有权；9 项测试通过 |
+
+证据脚本与日志：`artifacts/review-2026-09-12/`（复现脚本 `repro.mjs`、`frag.mjs`、`marker.mjs`、`shadow-frame.mjs`，其中 `shadow-frame.mjs` 支持 `before`/`after` 两个参数对比修复前后）、`artifacts/review-round-check.log`、`artifacts/review-round-e2e.log`、`artifacts/review-round-e2e-results.json`。
+
+### 标签页身份：实测与回归
+
+反馈怀疑"用过 SourcePin 之后标签页被改名成工具图标和名字"。逐项核查结果：
+
+| 检查 | 方法 | 结果 |
+| --- | --- | --- |
+| 页面标题 | `document.title` 运行前后 | 不变（`Acme Dashboard · Orders`、中文标题各测一次） |
+| 整个 head | `document.head.innerHTML` 逐字节 diff | 除测试注入的 `<script>` 外无差异 |
+| 图标元素 | `link[rel*="icon"]` 列表 | 不变 |
+| 浏览器侧标题 | CDP `Target.getTargets` 的 tab title | 不变（Chromium 151 与真实 Chrome 152） |
+| URL | `location.href` | 不变 |
+| 运行时代码 | 打包产物里搜 `document.title`、`rel="icon"`、`favicon` | 唯一 `.title=` 是屏幕的 tooltip 属性；唯一 `<title>` 是生成的离线 page.html 字符串 |
+
+端到端新增一条（`Neither adapter renames the page or repaints its icon`）：在自带 `<title>`、`<link rel="icon">`、`apple-touch-icon` 与 `canonical` 的页面上，扩展与书签两个适配器分别断言标题、head、图标列表与地址均未变化，且浏览器侧的 tab title 仍为页面标题。本轮 e2e 因此从 15 项增至 **16 项**，全部通过。用户自查脚本：`artifacts/tab-identity-check.js`（只读，粘贴进 Console，列出使用期间标题/head/图标的任何改动及调用栈）。
+
+### 交付包（v0.1.6）与交付前核对
+
+交付页由 `npm run delivery`（`scripts/make-delivery.mjs`）生成：直接读取 `site/index.html`，只替换内嵌书签、体验入口和插图，因此不会与线上安装页产生内容差异；该脚本同时复制扩展、内核与校验和。交付物放在 `artifacts/sourcepin-0.1.6/`（含 `install.html` 拖拽安装页、`sourcepin.bookmarklet.txt`、`sourcepin.js`、已解压的 `extension/`、`sourcepin-0.1.6-chrome.zip`、`README.md`、`SHA256SUMS`），整体压缩为 `artifacts/sourcepin-0.1.6-delivery.zip`。交付前的实测（`artifacts/review-2026-09-12/delivery-verify.mjs`，独立 Chromium + 临时 profile 从**交付目录本身**取文件）：
+
+| 核对项 | 结果 |
+| --- | --- |
+| 交付页与线上安装页是同一份文档 | 通过（正文文本、结构、除 `src`/`href` 外的全部属性逐字相同；截图逐像素相同，sha256 `17321225…`） |
+| 交付页只差内嵌内核与插图 | 通过（标签内嵌代码 = 本次交付的 `sourcepin.bookmarklet.txt`；插图与图标内联，无任何外部文件引用） |
+| `install.html` 从 `file://` 打开，标签是可执行的书签代码 | 通过（标签 145904 字符） |
+| 页内「唤起 SourcePin」就地启动同一份内核 | 通过 |
+| 页面底部手动安装代码与 `sourcepin.bookmarklet.txt` 一致 | 通过 |
+| 交付的书签在真实页面选中元素、不穿透原站点击 | 通过（选中 1 个目标，原站 handler 未执行） |
+| 交付的书签复制出内容 | 通过（3737 字符写入剪贴板） |
+| 交付的书签不改动页面标题/head/URL | 通过 |
+| 解压 `sourcepin-0.1.6-chrome.zip` 后可被 Chrome 加载 | 通过（临时 profile，扩展 ID 动态分配） |
+| 扩展捕获目标并启用截图能力 | 通过 |
+| `SHA256SUMS` 逐文件核对 | 13/13 OK |
+
+### 顺带修掉的两个不稳定测试
+
+- **多选提示只出现一帧。** `the multi-select hint appears once in the hover label and never repeats` 在 6 次全量运行中有 2 次失败或超时：提示只被写进一帧标签，第二次绘制就把它换掉，最快的一次鼠标移动后标签已不含提示，`waitForFunction` 一直等不到。这是真实的可读性缺陷（用户基本读不到），不只是测试问题。现在提示随悬停出现并保留约 1.6 秒，指针移开即结束，开始新一次选择后可再出现一次；测试改为轮询可观察状态并断言"读得到"。
+- **焦点测试把光栅噪声当成焦点框。** `keyboard focus is painted on the console and never on a plain click` 在约 8 次全量运行中出现 1 次失败：像素比较判定"点击后画面变了"，而 DOM 明确报告 `:focus-visible` 为 false、无焦点框、没有动画。实测差异是面板左侧 14×225 设备像素、最强 64/255 的重绘噪声——按钮被点击后 Chromium 重新光栅化了机身 SVG 的抗锯齿边缘（约 400–480 次点击读数中出现 1 次；无点击的对照 400/400 逐字节相同），而焦点框本身是 1473–4333 设备像素、最强 227–247。这是测量问题，不是产品缺陷。测试改为测量"画出来的东西"：焦点框必须达到 500 设备像素（阈值 24/255），纯鼠标点击的差异必须小于同一控件刚才画出的焦点框的十分之一。两个方向都做了变异验证——去掉焦点框会失败，把 `:focus-visible` 改成 `:focus` 让鼠标点击也画框也会失败。
+- **构建产物的新鲜度用 inode 判断。** `SHA256SUMS matches the artifacts this build produced…` 依赖"重建后 inode 必须变化"，在整套并行运行时偶发失败。现在改为对 ZIP 的每个条目与本次构建发布的文件做逐字节比较——比 inode 更直接地证明归档来自这次构建——非归档产物仍用 mtime 判断新鲜度。
+
+修复后连续 **6 次** `npm test` 全绿（每次 128/128），未再出现上述三条失败；焦点测试另有 30 次隔离压测全绿。
+
+### 本轮新增回归
+
+- `tests/core.test.mjs`：URL fragment/嵌套路由/正常锚点不误删；被过滤属性不能被伪元素回读（`attr()` 与被过滤值两条路径）；`content:"ordinary label text"` 仍保留；录制变化详情与身份属性净化；shadow 直接文本顺序、转义与字节预算；子树普通 class/aria 变化仍可读。
+- `tests/controller.test.mjs`：取消或 Esc 之后紧接着的复制/下载仍要求确认、且不出现「已确认」；只有接受后同一选择内才免确认；换目标后重新确认；open shadow 内同源 iframe 可拾取、原站 handler 不执行、帧重建后不累积。
+- `tests/package.test.mjs`：占位尺寸来自快照矩形，百分比/rem 不被当作像素。
+- `tests/ui.test.mjs`：键盘焦点可见性（Lite/Pro 九个控件，以实际绘制的像素判定）、"键盘到达指针能到达的每个位置"、面板焦点进入与返回、声明小字的独立键盘入口、拖动条方向键移动与 Home 复位、360×480 小视口下的可达性与面板滚动。
+- `tests/build-lock.test.mjs`（新增，9 项）：未写 owner 的锁不被删除、无主锁只有一个赢家、owner 退出后恢复、损坏锁不卡死、竞争恢复、失败清理、释放不删他人锁、迟到退出不删新锁、SHA256SUMS 与产物一致。
+
+### 已知边界与未做
+
+- 净化器覆盖查询串、fragment、userinfo、被过滤属性派生的伪元素内容与录制变化详情，但**仍然无法证明没有泄漏**：合成数据之外的凭据形态、浏览器对 `attr()` 的其它解析路径未穷举。个人信息检测仍是模式启发式。
+- 打开 ShadowRoot 的帧扫描受既有 250 ms 周期与文档去重约束；closed shadow、跨源 iframe 内容仍不可访问，这是设计边界。
+- 本轮未做性能基线（审查报告 S3）、发布流程自动化（S4）、威胁模型与负面用例全集（S5）、成本报告（S6）；这些是审查给出的独立后续任务，未在本轮声称完成。
+- 未运行依赖漏洞数据库扫描；"零漏洞"未被验证过，也不写进报告。
+- 未创建公开仓库、未发布网站、未选择许可证，权限仍为 activeTab、scripting、storage 与可选 downloads。
+
 ## 最新补充：整页样式按签名覆盖、srcset 规范解析与预览上限
 
 2026-09-11：提交 `996dbbb`。三项改动同时落地，`npm run check` **88/88**，`npm run test:e2e` **15/15**，两者均为本次改动后的实跑结果。

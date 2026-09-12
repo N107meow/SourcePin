@@ -1,11 +1,12 @@
 {
   "name": "sourcepin",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "description": "Pick a web element. Give your agent the context.",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "delivery": "node scripts/make-delivery.mjs",
     "dev": "node scripts/serve.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",

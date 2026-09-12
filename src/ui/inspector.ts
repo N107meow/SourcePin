@@ -41,8 +41,9 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
       <div class="robot" data-mode="lite">
         <img class="asset asset-lite" width="188" height="264" alt="SourcePin 机器人" draggable="false">
         <img class="asset asset-pro" width="188" height="264" alt="" draggable="false">
-        <button class="drag-handle" aria-label="拖动 SourcePin"></button>
-        <button class="screen" type="button" data-action="preview-panel" aria-label="预览捕获内容" title="单击或按 Enter 预览"><span class="screen-count"></span><span class="screen-status"></span><span class="screen-match"></span><span class="screen-summary"></span><span class="screen-notice"></span></button>
+        <button class="drag-handle" aria-label="拖动 SourcePin · 方向键移动，Home 复位"></button>
+        <button class="screen" type="button" data-action="preview-panel" aria-label="预览捕获内容" title="单击或按 Enter 预览"><span class="screen-count"></span><span class="screen-status"></span><span class="screen-match"></span><span class="screen-summary"></span><span class="screen-notice-space" aria-hidden="true" hidden></span></button>
+        <button class="screen-notice" type="button" data-action="notice" aria-label="查看已确认的声明" hidden></button>
         <button class="hotspot copy" data-action="copy" aria-label="复制 Markdown"></button>
         <button class="hotspot settings-button" data-action="mode-picker" aria-label="选择 Lite 或 Pro 模式" aria-expanded="false" aria-controls="sourcepin-mode-picker"></button>
         <button class="hotspot capture" data-action="capture-panel" aria-label="打开画面采集"></button>
@@ -56,6 +57,8 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
 
   const robot = q<HTMLElement>(root, '.robot');
   const stage = q<HTMLElement>(root, '.stage');
+  const notice = q<HTMLElement>(root, '.screen-notice');
+  const noticeSpace = q<HTMLElement>(root, '.screen-notice-space');
   const image = q<HTMLImageElement>(root, '.asset-lite');
   const proImage = q<HTMLImageElement>(root, '.asset-pro');
   const toastNode = q<HTMLElement>(root, '.toast');
@@ -169,12 +172,33 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   };
   let finishReview: ((accepted:boolean)=>void) | undefined;
   let panelMode: 'live'|'memory' = 'live';
-  const settleReview=(accepted=false)=>{const resolve=finishReview;finishReview=undefined;q<HTMLElement>(root,'[data-panel="review"]').hidden=true;resolve?.(accepted);};
+  const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled])';
+  let panelOpener: HTMLElement | null = null;
+  // A panel that opens visibly but leaves focus behind is a dead end for the
+  // keyboard, so focus walks into it and comes back to the control that asked
+  // for it. It only does so while the console itself holds focus: the tour at
+  // start-up and a review opened by Cmd/Ctrl+C must not pull the page's focus.
+  const focusPanel = (panel: HTMLElement) => {
+    const opener = root.activeElement as HTMLElement | null;
+    if (!opener) return;
+    panelOpener = opener;
+    (panel.querySelector<HTMLElement>(FOCUSABLE) ?? panel).focus();
+  };
+  const restoreFocus = () => {
+    const target = panelOpener;
+    panelOpener = null;
+    // Nothing to restore, or the controller closed the panel while the user was
+    // picking on the page: focus belongs there, not back on the console.
+    if (!target?.isConnected || !root.activeElement) return;
+    target.focus();
+  };
+  const settleReview=(accepted=false)=>{const resolve=finishReview;finishReview=undefined;q<HTMLElement>(root,'[data-panel="review"]').hidden=true;resolve?.(accepted);restoreFocus();};
   const closePanel = (): boolean => {
     const open = panels().find(panel => !panel.hidden);
     if (!open) return false;
     if(open.dataset.panel==='review')settleReview();
     open.hidden = true;
+    restoreFocus();
     return true;
   };
   const openPanel = (name: string) => {
@@ -184,7 +208,8 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     const wasOpen = !target.hidden;
     panels().forEach(panel => { panel.hidden = true; });
     target.hidden = wasOpen;
-    if (!target.hidden) placePanels();
+    if (!target.hidden) { placePanels(); focusPanel(target); }
+    else restoreFocus();
   };
   const changedSettings = () => {
     const settings: Settings = {
@@ -199,18 +224,16 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   };
 
   root.addEventListener('click', event => {
-    const noticeHit=(event.target as Element).closest?.('.screen-notice');
-    if (noticeHit && state.notice) {
-      // Read-only replay of the one review this activation already recorded.
-      void api.review({action:state.notice.action,counts:state.notice.counts,screenshot:state.notice.screenshot,downloadsImages:state.notice.downloadsImages},state.notice,'memory');
-      return;
-    }
     const button = (event.target as Element).closest<HTMLElement>('[data-action]');
     if (!button) return;
     const action = button.dataset.action;
     animateButton(button,false);
     if (action === 'export-confirm') settleReview(true);
     else if (action === 'export-cancel') settleReview();
+    else if (action === 'notice' && state.notice) {
+      // Read-only replay of the one review this activation already recorded.
+      void api.review({action:state.notice.action,counts:state.notice.counts,screenshot:state.notice.screenshot,downloadsImages:state.notice.downloadsImages},state.notice,'memory');
+    }
     else if (action === 'copy') actions.copy();
     else if (action === 'download') actions.download();
     else if (action === 'repick') actions.repick();
@@ -244,6 +267,17 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
 
   let drag: { x: number; y: number; left: number; top: number } | null = null;
   const dragHandle = q<HTMLElement>(root, '.drag-handle');
+  // Pointer drag, arrow keys and the reset all place the console through the
+  // same clamp, so it can never be parked outside the viewport.
+  const placeConsole = (left: number, top: number) => {
+    Object.assign(host.style, {
+      left: `${Math.max(0, Math.min(innerWidth - stage.offsetWidth, left))}px`,
+      top: `${Math.max(0, Math.min(innerHeight - stage.offsetHeight, top))}px`,
+      right: 'auto', bottom: 'auto',
+    });
+    placePanels();
+  };
+  const moves: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
   dragHandle.addEventListener('pointerdown', event => {
     const rect = host.getBoundingClientRect();
     drag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
@@ -251,10 +285,22 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   });
   dragHandle.addEventListener('pointermove', event => {
     if (!drag) return;
-    const left = Math.max(0, Math.min(innerWidth - stage.offsetWidth, drag.left + event.clientX - drag.x));
-    const top = Math.max(0, Math.min(innerHeight - stage.offsetHeight, drag.top + event.clientY - drag.y));
-    Object.assign(host.style, { left: `${left}px`, top: `${top}px`, right: 'auto', bottom: 'auto' });
-    placePanels();
+    placeConsole(drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+  });
+  // Dragging is a pointer gesture, so the handle also answers the arrow keys and
+  // Home puts the console back in its own corner.
+  dragHandle.addEventListener('keydown', event => {
+    if (event.key === 'Home') {
+      event.preventDefault();
+      Object.assign(host.style, { left: '', top: '', right: '', bottom: '' });
+      constrain();
+      return;
+    }
+    const step = moves[event.key];
+    if (!step || event.altKey || event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    const rect = host.getBoundingClientRect();
+    placeConsole(rect.left + step[0] * 16, rect.top + step[1] * 16);
   });
   const endDrag = () => { drag = null; };
   dragHandle.addEventListener('pointerup', endDrag);
@@ -270,6 +316,17 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     placePanels();
   };
   addEventListener('resize', constrain);
+
+  // The notice is a control of its own rather than a span inside the screen
+  // button, so the screen keeps an invisible copy of the line for its layout and
+  // the control is drawn exactly over it.
+  const placeNotice = () => {
+    if (notice.hidden) return;
+    const box = noticeSpace.getBoundingClientRect();
+    const frame = robot.getBoundingClientRect();
+    if (!box.width) return;
+    Object.assign(notice.style, { left: `${box.left - frame.left}px`, top: `${box.top - frame.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+  };
 
   const update = (next: UIState) => {
     state = next;
@@ -293,10 +350,12 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     } : { includeHidden: '包含隐藏内容', settings: '设置', language: '输出语言', maxNodes: '最大节点数', maxDepth: '最大深度', capture: '画面采集', preview: '预览' };
     root.querySelectorAll<HTMLElement>('[data-text]').forEach(node => { node.textContent = labels[node.dataset.text || ''] || ''; });
     const aria: Record<string, string> = en ? {
-      '.screen': 'Preview capture', '.settings-button': 'Choose Lite or Pro mode', '.capture': 'Open capture', '.drag-handle': 'Drag SourcePin', '.mode-switch': 'Switch Lite or Pro mode',
+      '.screen': 'Preview capture', '.settings-button': 'Choose Lite or Pro mode', '.capture': 'Open capture', '.drag-handle': 'Drag SourcePin · arrow keys move, Home resets', '.mode-switch': 'Switch Lite or Pro mode',
+      '.screen-notice': 'View the confirmed statement',
       '[data-action="component-shot"]': 'Capture component', '[data-action="viewport-shot"]': 'Capture viewport', '[data-action="whole-page"]': 'Capture whole-page DOM',
     } : {
-      '.screen': '预览捕获内容', '.settings-button': '选择 Lite 或 Pro 模式', '.capture': '打开画面采集', '.drag-handle': '拖动 SourcePin', '.mode-switch': '切换 Lite 或 Pro 模式',
+      '.screen': '预览捕获内容', '.settings-button': '选择 Lite 或 Pro 模式', '.capture': '打开画面采集', '.drag-handle': '拖动 SourcePin · 方向键移动，Home 复位', '.mode-switch': '切换 Lite 或 Pro 模式',
+      '.screen-notice': '查看已确认的声明',
     };
     Object.entries(aria).forEach(([selector, label]) => q<HTMLElement>(root, selector).setAttribute('aria-label', label));
     // The mode wording lives inside the picker, so it appears and disappears
@@ -336,16 +395,20 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     // readable on the screen instead of reopening the dialog on every export.
     // It shares the screen's text state: with nothing picked the screen keeps
     // only the face, so the console stays uncluttered while idle.
-    const notice=q<HTMLElement>(root,'.screen-notice');
     const showNotice=next.confirmed && showText;
-    notice.textContent=showNotice?(en?'Confirmed · terms':'已确认 · 声明'):'';
+    const noticeText=showNotice?(en?'Confirmed · terms':'已确认 · 声明'):'';
+    notice.textContent=noticeText;
+    noticeSpace.textContent=noticeText;
     notice.hidden=!showNotice;
+    noticeSpace.hidden=!showNotice;
+    placeNotice();
     q<HTMLElement>(root, '.screen').title=next.confirmed
       ? (en?'This session was reviewed; pasting sends content to a third party. Open the preview for the full statement.':'本会话已确认导出；粘贴给 LLM 即把内容交给第三方处理。打开预览可查看完整声明。')
       : (en?'Click or press Enter to preview':'单击或按 Enter 预览');
     q<HTMLElement>(root, '.preview').textContent = next.markdown || '尚未捕获内容。';
     host.style.display = hidden ? 'none' : '';
-    requestAnimationFrame(constrain);
+    // One frame later the notice has its final box, which the control mirrors.
+    requestAnimationFrame(() => { constrain(); placeNotice(); });
     if (!onboardingShown && !next.settings.onboardingDone && panels().every(panel => panel.hidden)) {onboardingShown=true;openPanel('onboarding');}
   };
 
@@ -386,6 +449,9 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     contains(event) { return event.composedPath().includes(host); },
     closePanel,
     destroy() {
+      // Tearing the tool down removes its controls, so there is nothing to give
+      // focus back to.
+      panelOpener = null;
       settleReview();
       if (toastTimer) clearTimeout(toastTimer);
       removeEventListener('resize', constrain);

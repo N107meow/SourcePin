@@ -1,10 +1,11 @@
 import type { RecordedState, Recorder, Recording, Styles, Transition } from '../types.js';
 import { sampleStyles } from './capture.js';
-import { safeAttributes } from './privacy.js';
+import { SENSITIVE_VALUE, safeAttributes, safeStyleValue, unsafeDeclaration } from './privacy.js';
 
 const MAX_STATES = 24;
 const MAX_TRANSITIONS = 40;
 const SETTLE_LIMIT_MS = 1200;
+const MAX_CHANGE_CHARS = 200;
 
 function cloneRecording(states: RecordedState[], transitions: Transition[], degradations: string[]): Recording {
   return { states: states.map((state) => ({ ...state, styles: { ...state.styles }, attributes: { ...state.attributes } })), transitions: transitions.map((transition) => ({ ...transition, styleDelta: { ...transition.styleDelta }, changes: [...transition.changes] })), degradations: [...degradations] };
@@ -25,11 +26,20 @@ function transitionDuration(element: Element): { delay: number; timedOut: boolea
   return { delay: Math.min(SETTLE_LIMIT_MS, Math.max(24, Math.ceil(longest) + 24)), timedOut: longest > SETTLE_LIMIT_MS };
 }
 
+/** Only sanitized identity reaches a change line, so a credential that lives in
+ * an id or class can never be republished by naming the element that moved. A
+ * removed id or class collapses into the tag name alone. */
 function selectorFor(node: Element, root: Element): string {
-  if (node === root) return node.tagName.toLowerCase();
-  const id = node.id ? `#${CSS.escape(node.id)}` : '';
-  const classes = [...node.classList].slice(0, 2).map((name) => `.${CSS.escape(name)}`).join('');
-  return `${node.tagName.toLowerCase()}${id || classes}`;
+  const tag = node.tagName.toLowerCase();
+  if (node === root) return tag;
+  const safe = safeAttributes(node).attributes;
+  const id = safe.id ? `#${safe.id}` : '';
+  const classes = (safe.class ?? '').split(/\s+/).filter(Boolean).slice(0, 2).map((name) => `.${name}`).join('');
+  return `${tag}${id || classes}`;
+}
+
+function hashes(value: string | null | undefined): boolean {
+  return typeof value === 'string' && /^[0-9a-f]{6,}$/i.test(value.trim());
 }
 
 function isPointerOver(element: Element): boolean {
@@ -41,10 +51,54 @@ function isToolUi(node: Node | null): boolean {
   return Boolean(element?.closest('[data-sourcepin-ui]'));
 }
 
-function boundedValue(value: string | null): string {
-  if (value === null) return 'null';
-  const clean = /(?:pass(?:word)?|secret|token|auth|credential|cookie|session|bearer)/i.test(value) ? '[redacted]' : value;
-  return JSON.stringify(clean.length > 120 ? `${clean.slice(0, 120)}…` : clean);
+/** Attribute values are filtered with the same rules as attribute snapshots;
+ * declarations go through the shared CSS sanitizer after parsing. */
+function describeChange(element: Element, name: string, before: string | null, after: string | null): string {
+  const audit = safeAttributes(element);
+  if (name === 'style') {
+    // A filtered declaration disappears from both sides: the reason is stated,
+    // the value never is — not even the old one the page has already replaced.
+    if (audit.removed.includes('style') || (hashes(before) && hashes(after))) return `${name} content redacted`;
+    const declarations = (value: string | null) => {
+      const holder = element.ownerDocument.createElement('div');
+      holder.setAttribute('style', value ?? '');
+      const style = holder.style;
+      // Custom properties such as --api-key are not enumerated by the CSSOM, so
+      // the declarations are read from the source text as well and filtered by
+      // the same rule that governs every other computed value.
+      const source = new Map<string, string>();
+      for (const declaration of (value ?? '').split(';')) {
+        const colon = declaration.indexOf(':');
+        if (colon > 0) source.set(declaration.slice(0, colon).trim().toLowerCase(), declaration.slice(colon + 1).trim());
+      }
+      for (const property of style) source.set(property.toLowerCase(), style.getPropertyValue(property).trim());
+      return [...source].flatMap(([property, raw]) => {
+        const safe = safeStyleValue(raw, element.ownerDocument.baseURI);
+        return unsafeDeclaration(property, safe) ? [] : [`${property}: ${safe}`];
+      }).join('; ');
+    };
+    const from = before === null ? 'none' : declarations(before);
+    const to = after === null ? 'none' : declarations(after);
+    return `${name} ${from || 'none'} -> ${to || 'none'}`;
+  }
+  if (hashes(before) || hashes(after)) return `${name} content redacted`;
+  // The old value is sanitized on its own terms instead of being compared with
+  // the current snapshot: an ordinary value the page has already replaced is
+  // still ordinary, and a credential is redacted on whichever side it appears.
+  const sanitized = (name: string, value: string) => {
+    const bounded = value.slice(0, MAX_CHANGE_CHARS);
+    if (SENSITIVE_VALUE.test(bounded)) return '[redacted]';
+    if (name !== 'class') return bounded;
+    const classes = bounded.split(/\s+/).filter(Boolean);
+    return classes.some((entry) => SENSITIVE_VALUE.test(entry)) ? '[redacted]' : classes.join(' ');
+  };
+  const side = (value: string | null) => {
+    if (value === null) return 'null';
+    const safe = sanitized(name, value);
+    if (safe === '[redacted]') return safe;
+    return JSON.stringify(safe.length > MAX_CHANGE_CHARS ? `${safe.slice(0, MAX_CHANGE_CHARS)}…` : safe);
+  };
+  return `${name} ${side(before)} -> ${side(after)}`;
 }
 
 export function createRecorder(element: Element, onChange?: () => void): Recorder {
@@ -131,7 +185,7 @@ export function createRecorder(element: Element, onChange?: () => void): Recorde
       if (record.type === 'attributes') {
         const name = record.attributeName ?? 'attribute';
         if (name !== 'class' && name !== 'style' && !name.startsWith('aria-')) continue;
-        mutationChanges.add(`${selector}: ${name} ${boundedValue(record.oldValue)} -> ${boundedValue(source.getAttribute(name))}`);
+        mutationChanges.add(`${selector}: ${describeChange(source, name, record.oldValue, source.getAttribute(name))}`);
       } else if (record.type === 'childList') {
         const added = [...record.addedNodes].filter((node) => !isToolUi(node)).length;
         const removed = [...record.removedNodes].filter((node) => !isToolUi(node)).length;

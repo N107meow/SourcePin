@@ -34,6 +34,35 @@ test('page ZIP marks every image in place, downloads none, and opens offline wit
  assert.equal(requests.filter(url=>/\.(svg|png)$/.test(url)).length,0,'no image was fetched');
  assert.ok(bytes.length<=16*1024*1024);await page.close();await offline.close();
 });
+test('image markers use the captured layout size rather than a detached box or a unit-less number',async()=>{
+ const page=await browser.newPage();
+ await page.route('**/*',async route=>{if(route.request().isNavigationRequest())return route.fulfill({contentType:'text/html',body:`<main style="padding:8px">
+   <img id="natural" src="/a.png" width="320" height="180">
+   <img id="css-px" src="/b.png" style="width:120px;height:60px">
+   <img id="percent" src="/c.png" style="width:50%;height:10rem">
+ </main>`});return route.abort();});
+ await page.goto('https://fixture.test/markers');await page.addScriptTag({content:code});
+ const result=await page.evaluate(async()=>{
+  // The style budget is exhausted so every image falls back to recorded layout,
+  // which is the branch a default page capture also reaches past the budget.
+  const capture=await Bundle.captureElement(document.querySelector('main'),{kind:'page',mode:'lite',maxStyleNodes:0});
+  const files=[...new Uint8Array(await (await Bundle.createPagePackage([capture])).arrayBuffer())];
+  return {rects:Object.fromEntries(capture.nodes.filter(node=>node.tag==='img').map(node=>[node.attributes.id,node.rect])),files};
+ });
+ const html=unzip(result.files)['page.html'].toString();
+ const markers=[...html.matchAll(/src="data:image\/svg\+xml;base64,([^"]+)"/g)].map(match=>Buffer.from(match[1],'base64').toString('utf8').match(/width="(\d+)" height="(\d+)"/).slice(1).map(Number));
+ assert.equal(markers.length,3);
+ // Each marker is the size the snapshot recorded for that position.
+ for(const [index,id] of ['natural','css-px','percent'].entries()){
+  const rect=result.rects[id];
+  assert.deepEqual(markers[index],[Math.round(rect.width),Math.round(rect.height)],`${id} keeps its captured box ${rect.width}x${rect.height}`);
+ }
+ // A percentage or rem declaration is never reinterpreted as pixels.
+ const percent=result.rects.percent;
+ assert.notDeepEqual(markers[2],[50,10],'50% and 10rem are not read as 50px and 10px');
+ assert.ok(markers[2][0]>percent.width*0.9);
+ await page.close();
+});
 test('hard ZIP/file limits refuse instead of emitting partial files; download bounds and cancellation are declared',async()=>{
  const page=await browser.newPage();await page.route('**/*',r=>r.fulfill({contentType:'text/html',body:'<p>Budget</p>'}));await page.goto('https://fixture.test');await page.addScriptTag({content:code});
  const result=await page.evaluate(async()=>{const capture=await Bundle.captureElement(document.body,{kind:'page',mode:'lite'});const errors=[];for(const options of [{maxZipBytes:100},{maxHtmlBytes:100},{maxReportBytes:100}])try{await Bundle.createPagePackage([capture],options);}catch(e){errors.push(e.message);}const abort=new AbortController();abort.abort();try{await Bundle.createPagePackage([capture],{signal:abort.signal});}catch(e){errors.push(e.name);}return errors;});

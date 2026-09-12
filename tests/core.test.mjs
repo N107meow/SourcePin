@@ -14,7 +14,8 @@ before(async () => {
       contents: `
         export { generateLocators, validateLocators } from './src/core/locators.ts';
         export { captureElement, sampleStyles } from './src/core/capture.ts';
-        export { safeAttributes } from './src/core/privacy.ts';
+        export { safeAttributes, safeDocumentUrl, safeFragment, safeUrl } from './src/core/privacy.ts';
+        export { createRecorder } from './src/core/recorder.ts';
       `,
       resolveDir: process.cwd(),
       sourcefile: 'core-test-entry.ts',
@@ -132,6 +133,158 @@ test('capture sanitizes source URLs and preserves mixed direct text order', asyn
     assert.doesNotMatch(JSON.stringify(capture), /url-secret|css-secret/);
     assert.match(capture.meta.url, /token=%5Bredacted%5D/);
     assert.match(capture.html, />Save <span[^>]*>now<\/span>!<\/button>/);
+  } finally { await page.close(); }
+});
+
+test('URL sanitization covers fragments, nested routes and normal anchors alike', async () => {
+  const page = await fixture('<p id="anchor">anchor</p>');
+  try {
+    const results = await page.evaluate(() => [
+      'https://x.test/#access_token=ALPHA_CREDENTIAL_781',
+      'https://x.test/#id_token=ALPHA_CREDENTIAL_781&state=ok',
+      'https://x.test/#/route?token=ALPHA_CREDENTIAL_781',
+      'https://x.test/?a=1#/app#access_token=ALPHA_CREDENTIAL_781',
+      'https://x.test/#apiKey=ALPHA_CREDENTIAL_781',
+      'https://crowd.test/docs#token=ALPHA_CREDENTIAL_781',
+      'https://user:ALPHA_CREDENTIAL_781@x.test/path?password=ALPHA_CREDENTIAL_781',
+      'https://x.test/#access_token',
+      'https://x.test/#=ALPHA_CREDENTIAL_781',
+      'https://x.test/page#section-2',
+      'https://x.test/#/dashboard/orders',
+      'https://x.test/#features',
+      'https://x.test/?a=1&a=2',
+      'https://x.test/a?q=tokenizer',
+    ].map((input) => {
+      const sanitized = SourcePinCore.safeDocumentUrl(input);
+      return [input, sanitized, /ALPHA_CREDENTIAL_781/.test(sanitized)];
+    }));
+    for (const [input, , leaked] of results) assert.equal(leaked, false, input);
+    const [accessToken, idToken, route, nested, apiKey, crowd, userinfo] = results.map(([, output]) => output);
+    assert.equal(accessToken, 'https://x.test/#access_token=[redacted]');
+    assert.equal(idToken, 'https://x.test/#id_token=[redacted]&state=ok');
+    assert.equal(route, 'https://x.test/#/route?token=[redacted]');
+    assert.equal(nested, 'https://x.test/?a=1#/app#access_token=[redacted]');
+    assert.equal(apiKey, 'https://x.test/#apiKey=[redacted]');
+    assert.equal(crowd, 'https://crowd.test/docs#token=[redacted]');
+    assert.equal(userinfo, 'https://x.test/path?password=%5Bredacted%5D');
+    // Ordinary anchors, routes and query values survive untouched.
+    for (const [input, output] of results.slice(9)) assert.equal(output, input, input);
+    const extras = await page.evaluate(() => ({
+      fragment: SourcePinCore.safeFragment('#section-2'),
+      unparseable: SourcePinCore.safeDocumentUrl('not a url at all'),
+      relative: SourcePinCore.safeUrl('https://x.test/path?a=1', 'https://base.test/'),
+    }));
+    assert.equal(extras.fragment, '#section-2');
+    // A URL that cannot be parsed keeps only a fragment that sanitized cleanly.
+    assert.equal(extras.unparseable, '');
+    assert.equal(extras.relative, 'https://x.test/path?a=1');
+  } finally { await page.close(); }
+});
+
+test('filtered attributes cannot be republished by pseudo-element content', async () => {
+  const page = await fixture(`<style>
+    #attr-pseudo::before{content:attr(data-token)}
+    #unsafe-selector-pseudo::after{content:attr(aria-secret)}
+    #kept-selector-pseudo::after{content:attr(data-label)}
+    #plain-pseudo::before{content:"ordinary label text"}
+  </style>
+  <div id="root">
+    <div id="attr-pseudo" data-token="ALPHA_CREDENTIAL_781" data-label="visible-label">a</div>
+    <div id="unsafe-selector-pseudo" aria-secret="ALPHA_CREDENTIAL_781" data-label="visible-label">b</div>
+    <div id="kept-selector-pseudo" data-label="visible-label">e</div>
+    <div id="plain-pseudo">c</div>
+  </div>`);
+  try {
+    const result = await page.evaluate(async () => {
+      const capture = await SourcePinCore.captureElement(document.querySelector('#root'), { mode: 'pro', kind: 'page' });
+      const pseudoOf = (id) => capture.nodes.find((node) => node.attributes.id === id)?.pseudo ?? {};
+      return {
+        attrPseudo: pseudoOf('attr-pseudo'),
+        unsafeSelectorPseudo: pseudoOf('unsafe-selector-pseudo'),
+        keptSelectorPseudo: pseudoOf('kept-selector-pseudo'),
+        plainPseudo: pseudoOf('plain-pseudo')['::before'],
+        serialized: JSON.stringify(capture),
+      };
+    });
+    assert.deepEqual(result.attrPseudo, {}, 'attr() over a removed attribute is dropped whole');
+    assert.deepEqual(result.unsafeSelectorPseudo, {}, 'an attribute-selector value is dropped the same way');
+    // An attribute that passed the filter is not a leak when a pseudo element
+    // renders it again: the value it shows is already in the snapshot.
+    assert.equal(result.keptSelectorPseudo?.['::after']?.content, '"visible-label"');
+    assert.equal(result.plainPseudo?.content, '"ordinary label text"', 'an ordinary pseudo element keeps its text');
+    assert.doesNotMatch(result.serialized, /ALPHA_CREDENTIAL_781/, 'no capture channel carries the value');
+  } finally { await page.close(); }
+});
+
+test('recording changes use the same sanitizer as the capture they belong to', async () => {
+  const page = await fixture('<section id="root"><button id="rec">Record</button><button id="plain">Plain</button></section>');
+  try {
+    const recording = await page.evaluate(async () => {
+      const target = document.querySelector('#rec');
+      const recorder = SourcePinCore.createRecorder(target);
+      target.style.setProperty('--api-key', 'abc987654');
+      target.style.setProperty('outline-color', 'rgb(3, 2, 1)');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      target.style.setProperty('background-image', "url('/a?token=ALPHA_CREDENTIAL_781')");
+      target.setAttribute('class', 'token-ALPHA_CREDENTIAL_781');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return recorder.stop();
+    });
+    const text = JSON.stringify(recording);
+    assert.doesNotMatch(text, /abc987654|ALPHA_CREDENTIAL_781/, 'no recording channel carries a credential');
+    assert.doesNotMatch(text, /--api-key/, 'the filtered declaration is not named as a change either');
+    const changes = recording.transitions.flatMap((transition) => transition.changes).join('\n');
+    assert.match(changes, /outline-color: rgb\(3, 2, 1\)/, 'an ordinary declaration stays readable');
+    // The identity of the element that changed is sanitized as well, so a
+    // credential in a class never appears as the name of the change.
+    assert.match(changes, /button: class null -> \[redacted\]/);
+  } finally { await page.close(); }
+});
+
+test('a mutated subtree reports ordinary class and aria changes readably', async () => {
+  const page = await fixture('<section id="root"><button id="rec">Record</button><button id="plain">Plain</button></section>');
+  try {
+    const changes = await page.evaluate(async () => {
+      const recorder = SourcePinCore.createRecorder(document.querySelector('#root'));
+      const plain = document.querySelector('#plain');
+      plain.className = 'state-open';
+      plain.setAttribute('aria-expanded', 'true');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return recorder.stop().transitions.flatMap((transition) => transition.changes);
+    });
+    const text = changes.join('\n');
+    assert.match(text, /button#plain: class null -> "state-open"/);
+    assert.match(text, /aria-expanded null -> "true"/);
+  } finally { await page.close(); }
+});
+
+test('open shadow roots serialize direct text in render order', async () => {
+  const page = await fixture('<div id="host"></div>');
+  try {
+    const html = await page.evaluate(async () => {
+      const host = document.querySelector('#host');
+      host.attachShadow({ mode: 'open' }).innerHTML = 'Shadow leading <b>bold</b> trailing';
+      const capture = await SourcePinCore.captureElement(host, { mode: 'pro', kind: 'page' });
+      return capture.html;
+    });
+    assert.match(html, /Shadow leading <b[^>]*>bold<\/b> trailing/);
+  } finally { await page.close(); }
+});
+
+test('shadow-root text respects the shared byte budget and escaping', async () => {
+  const page = await fixture('<div id="host"></div>');
+  try {
+    const result = await page.evaluate(async () => {
+      const host = document.querySelector('#host');
+      host.attachShadow({ mode: 'open' }).innerHTML = 'αβγ 😀 ' + 'x'.repeat(400) + '<span>tail</span>';
+      const wide = await SourcePinCore.captureElement(host, { mode: 'pro', kind: 'page' });
+      const tiny = await SourcePinCore.captureElement(host, { mode: 'pro', kind: 'page', maxBytes: 4096 });
+      return { wide: wide.html, tiny: tiny.html };
+    });
+    assert.match(result.wide, /αβγ 😀/);
+    assert.match(result.wide, /x{400}/);
+    assert.match(result.wide, /<span[^>]*>tail<\/span>/);
+    assert.ok(result.tiny.length < result.wide.length, 'the shared byte budget also bounds shadow text');
   } finally { await page.close(); }
 });
 

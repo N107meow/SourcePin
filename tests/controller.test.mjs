@@ -201,19 +201,42 @@ test('a full multi-selection reports the tenth-target limit instead of dropping 
   }finally{await browser.close();}
 });
 
-test('the multi-select hint appears once in the hover label and never repeats',async()=>{
+test('the multi-select hint is offered once per hover and stays readable',async()=>{
   const browser=await chromium.launch({headless:true});
   try{
-    const page=await browser.newPage();await page.setContent('<p data-testid="hint">Hint target</p>');
+    const page=await browser.newPage();
+    await page.setContent('<p data-testid="hint">Hint target</p><p data-testid="other-hint">Other target</p><div id="empty" style="height:400px"></div>');
     await page.addScriptTag({content:await controllerFixture('lite')});await page.evaluate(()=>window.startTest());
     const label=page.locator('sourcepin-inspector .highlight-label');
+    const hint=()=>page.locator('sourcepin-inspector .highlight').evaluate(node=>node.dataset.hint);
+    // Polled rather than sampled once: a repaint can land between the pointer
+    // move and the assertion, which says nothing about what the user sees.
+    const offered=async(want)=>{
+      for(let attempt=0;attempt<60;attempt++){
+        if(await hint()===String(want))return true;
+        await page.waitForTimeout(25);
+      }
+      return false;
+    };
     await page.getByTestId('hint').hover();
-    await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.highlight').dataset.hint==='true');
+    assert.equal(await offered(true),true,'the first hover offers Shift multi-select');
     assert.match(await label.textContent(),/Shift 点击可多选/);
-    await page.mouse.move(4,4);await page.waitForTimeout(30);
-    await page.getByTestId('hint').hover();
-    await page.waitForTimeout(60);
-    assert.doesNotMatch(await label.textContent(),/Shift 点击可多选/);
+    // The offer is readable: it survives the repaints that follow the first one
+    // instead of being spent by a single frame.
+    await page.waitForTimeout(400);
+    assert.match(await label.textContent(),/Shift 点击可多选/,'the hint stays long enough to read');
+    // Leaving the page area ends the offer, and coming back within the same
+    // window does not start a new one.
+    await page.mouse.move(8,300);
+    assert.equal(await offered(false),true,'leaving the target ends the offer');
+    await page.getByTestId('hint').hover();await page.waitForTimeout(200);
+    assert.doesNotMatch(await label.textContent(),/Shift 点击可多选/,'the same offer is not restarted on return');
+    // A new pick and a different element get their own single offer.
+    await page.getByTestId('hint').click();
+    await page.mouse.move(8,300);await page.waitForTimeout(120);
+    await page.getByTestId('other-hint').hover();
+    assert.equal(await offered(true),true,'a later pick on another element is offered the hint again');
+    assert.match(await label.textContent(),/Shift 点击可多选/);
   }finally{await browser.close();}
 });
 
@@ -262,6 +285,44 @@ test('selection follows page, nested, shadow and frame scrolling every paint wit
   }finally{await browser.close();}
 });
 
+test('a same-origin frame inside an open shadow root is pickable and never runs the page handler',async()=>{
+  const browser=await chromium.launch({headless:true});
+  try{
+    const page=await browser.newPage();
+    await page.setContent(`<div id="host"></div><button data-testid="plain">Plain</button>`);
+    await page.evaluate(()=>{
+      const root=document.querySelector('#host').attachShadow({mode:'open'});
+      const frame=document.createElement('iframe');
+      frame.id='inner';
+      frame.srcdoc='<button id="deep" onclick="parent.window.frameClicked=(parent.window.frameClicked||0)+1">Deep</button>';
+      root.append(frame);
+    });
+    await page.addScriptTag({content:await controllerFixture('lite')});await page.evaluate(()=>window.startTest());
+    // The frame scan runs on its own interval, so wait until the frame answers.
+    const frame=page.frames().find(candidate=>candidate!==page.mainFrame());
+    assert.ok(frame,'the shadow frame is reachable');
+    await page.waitForTimeout(600);
+    const box=await frame.locator('#deep').boundingBox();
+    await page.mouse.click(box.x+box.width/2,box.y+box.height/2);
+    await settled(page);
+    assert.equal(await page.evaluate(()=>window.frameClicked),undefined,'the page handler must not run');
+    assert.equal(await page.locator('sourcepin-inspector .screen-count').textContent(),'1');
+    assert.match(await page.locator('[data-panel="preview"] .preview').textContent(),/deep|button/);
+    // A frame that is removed and recreated is attached once, not accumulated.
+    await page.evaluate(()=>{
+      const root=document.querySelector('#host').shadowRoot;
+      root.querySelector('#inner').remove();
+      const frame=document.createElement('iframe');
+      frame.id='inner';
+      frame.srcdoc='<button id="deep">Deep again</button>';
+      root.append(frame);
+    });
+    await page.waitForTimeout(700);
+    const second=page.frames().find(candidate=>candidate!==page.mainFrame()&&candidate.url().startsWith('about:'));
+    assert.ok(second,'the replacement frame is reachable');
+    assert.equal(await second.locator('#deep').count(),1);
+  }finally{await browser.close();}
+});
 test('whole-page action in Lite exports markup, reports adapter results and keeps page kind on recapture',async()=>{
   const browser=await chromium.launch({headless:true});
   try{
@@ -365,6 +426,46 @@ test('the export review opens once per activation, keeps its notices readable, a
  }finally{await browser.close();}
 });
 
+test('cancelling or escaping the review never counts as confirming it',async()=>{
+ const browser=await chromium.launch({headless:true});
+ try{
+  const page=await browser.newPage();
+  await page.setContent('<p data-testid="clean-cancel">Plain target with nothing personal</p>');
+  await page.addScriptTag({content:await controllerFixture('pro')});await page.evaluate(()=>window.startTest());
+  const reviewVisible=()=>page.locator('[data-panel="review"]').isVisible();
+  const notice=page.locator('sourcepin-inspector .screen-notice');
+  await page.getByTestId('clean-cancel').click();await settled(page);
+  // First export, cancelled with the dialog's own button.
+  await page.locator('.copy').click();
+  assert.equal(await reviewVisible(),true);
+  await page.locator('[data-action="export-cancel"].panel-action').click();
+  assert.equal(await page.evaluate(()=>window.copied),undefined);
+  assert.equal(await notice.isVisible(),false,'a cancelled review is not a confirmed one');
+  for(const title of [await page.locator('sourcepin-inspector .screen').getAttribute('title'),await page.locator('sourcepin-inspector .screen-notice').textContent()]){assert.doesNotMatch(title??'',/已确认|Confirmed/);}
+  // The next copy asks again instead of exporting straight away.
+  await page.locator('.copy').click();
+  assert.equal(await reviewVisible(),true,'the second attempt still reviews');
+  await page.keyboard.press('Escape');
+  assert.equal(await reviewVisible(),false);
+  assert.equal(await page.evaluate(()=>window.copied),undefined);
+  assert.equal(await notice.isVisible(),false,'Escape leaves no confirmed state either');
+  // A download and a screenshot are held to the same rule.
+  await page.locator('.download').click();
+  assert.equal(await reviewVisible(),true,'download also reviews after a cancelled copy');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.evaluate(()=>window.downloaded),undefined);
+  // Only an accepted review makes the next clean export dialog-free.
+  await page.locator('.copy').click();await confirmExport(page);
+  await page.waitForFunction(()=>!!window.copied);
+  assert.equal(await notice.isVisible(),true);
+  assert.match(await notice.textContent(),/已确认 · 声明/);
+  await page.evaluate(()=>{window.copied=undefined;});
+  await page.locator('.copy').click();await page.waitForTimeout(400);
+  assert.equal(await reviewVisible(),false);
+  assert.match(await page.evaluate(()=>window.copied),/clean-cancel/);
+ }finally{await browser.close();}
+});
+
 test('personal information still forces the full review on every export',async()=>{
  const browser=await chromium.launch({headless:true});
  try{
@@ -384,8 +485,16 @@ test('personal information still forces the full review on every export',async()
   }
   await page.getByTestId('plain').click();await settled(page);
   await page.evaluate(()=>{window.copied=undefined;});
+  // The accepted statement described the previous snapshot, so choosing another
+  // target asks again even though the new snapshot is clean.
+  await page.locator('.copy').click();
+  assert.equal(await reviewVisible(),true,'a new target is reviewed on its own terms');
+  assert.match(await page.locator('.review-counts').textContent(),/邮箱 0/);
+  await confirmExport(page);await page.waitForFunction(()=>!!window.copied);
+  assert.match(await page.evaluate(()=>window.copied),/plain/);
+  await page.evaluate(()=>{window.copied=undefined;});
   await page.locator('.copy').click();await page.waitForTimeout(400);
-  assert.equal(await reviewVisible(),false);
+  assert.equal(await reviewVisible(),false,'a second clean export in the same selection needs no dialog');
   assert.match(await page.evaluate(()=>window.copied),/plain/);
   // A snapshot that carries personal information reopens the full review.
   for(let attempt=0;attempt<3;attempt++){

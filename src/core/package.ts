@@ -62,18 +62,40 @@ export async function createPagePackage(captures:Capture[],options:Options={}):P
    }
    return safe;
   };
-  // Prefer the declared size over the laid-out box so a detached or unscrolled
-  // image still gets a marker that matches its own dimensions.
+  // Marker geometry is read from the capture, never from the detached parse
+  // tree: a node inside an inert template has no layout, so offsetWidth is
+  // always zero there, and an inline "50%" is not 50 pixels.
+  const rectFor=(node:Element)=>{
+   const key=[...node.attributes].find(attribute=>attribute.name==='class')?.value.split(/\s+/).find(name=>/^sp-(?:s-)?\d+$/.test(name));
+   const snapshot=key?capture.nodes.find(entry=>entry.key===key||entry.styleKey===key):undefined;
+   const rect=snapshot?.rect;
+   return rect && rect.width>0 && rect.height>0 ? {width:rect.width,height:rect.height} : null;
+  };
+  // Declared size is a fallback: the laid-out box is what the snapshot actually
+  // showed, while a CSS px declaration still describes the intended size when
+  // layout was unavailable. Unsupported units are ignored rather than
+  // reinterpreted as pixels.
   const declaredPx=(node:Element,property:'width'|'height'):number=>{
    const attr=Number(node.getAttribute(property));
    if(Number.isFinite(attr) && attr>0)return attr;
-   const inline=(node as HTMLElement).style?.[property];
-   const parsed=inline?Number.parseFloat(inline):NaN;
+   const inline=(node as HTMLElement).style?.[property]?.trim();
+   const px=inline?/^(\d+(?:\.\d+)?)px$/i.exec(inline):null;
+   const parsed=px?Number(px[1]):NaN;
    return Number.isFinite(parsed) && parsed>0 ? parsed : 0;
   };
+  // A box smaller than the browser's own 16 px placeholder is not the image's
+  // intended size, so the neutral default is kept instead of copying it.
+  const usableRect=(rect:{width:number;height:number}|undefined|null,sized:boolean)=>{
+   if(!rect)return null;
+   const usable=rect.width>=20 && rect.height>=20;
+   return usable || sized ? {width:rect.width,height:rect.height} : null;
+  };
   const markerFor=(node:Element)=>{
-   const width=declaredPx(node,'width') || Number((node as HTMLElement).offsetWidth) || 80;
-   const height=declaredPx(node,'height') || Number((node as HTMLElement).offsetHeight) || 40;
+   const declared={width:declaredPx(node,'width'),height:declaredPx(node,'height')};
+   const sized=declared.width>0 && declared.height>0;
+   const rect=usableRect(rectFor(node),sized);
+   const width=rect?.width || declared.width || 80;
+   const height=rect?.height || declared.height || 40;
    return markerSvg(Math.round(width),Math.round(height));
   };
   // Any url() image reference in CSS text is marked too, so a stylesheet cannot

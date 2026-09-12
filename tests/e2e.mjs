@@ -53,6 +53,44 @@ try{
   await browserCdp.send('Extensions.triggerAction',{id,targetId:targetInfo.targetId});
   await page.locator('[data-sourcepin-root]').waitFor({timeout:6000});
   results.push('Actual extension default action injects content script with activeTab');
+  // Running the tool must not rename the page or repaint its icon: the user has
+  // to keep recognising the tab they are working in. Both shipping adapters go
+  // through a real page that owns its title, favicon and head links.
+  {
+    const identityPage=await context.newPage();
+    const pageHead=`<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>订单详情 · 真实网站</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="canonical" href="https://identity.test/orders/42">
+<meta name="description" content="真实网站订单页">
+</head><body><main><h1>订单 42</h1><button id="pay">支付</button></main></body></html>`;
+    await identityPage.route('https://identity.test/**',route=>route.fulfill({contentType:'text/html;charset=utf-8',body:pageHead}));
+    await identityPage.goto('https://identity.test/orders/42');
+    const readIdentity=()=>identityPage.evaluate(()=>({
+      url:location.href,
+      title:document.title,
+      head:document.head.innerHTML,
+      icons:[...document.querySelectorAll('link[rel*="icon"]')].map(node=>[node.getAttribute('rel'),node.getAttribute('href')]),
+    }));
+    const before=await readIdentity();
+    assert.equal(before.title,'订单详情 · 真实网站','the fixture owns its own title');
+    const identityTargets=await browserCdp.send('Target.getTargets',{filter:[{type:'tab',exclude:false}]});
+    const identityTarget=identityTargets.targetInfos.find(info=>info.url===identityPage.url());
+    await browserCdp.send('Extensions.triggerAction',{id,targetId:identityTarget.targetId});
+    await identityPage.locator('[data-sourcepin-root]').waitFor();
+    const afterExtension=await readIdentity();
+    assert.deepEqual(afterExtension,before,'the extension leaves the page title, head and icons untouched');
+    assert.equal((await browserCdp.send('Target.getTargets',{filter:[{type:'tab',exclude:false}]})).targetInfos.find(info=>info.url===identityPage.url()).title,'订单详情 · 真实网站','the browser tab keeps the page title');
+    await escapeUntilClosed(identityPage);
+    const identityBookmark=await readFile('dist/sourcepin.bookmarklet.txt','utf8');
+    await identityPage.evaluate(code=>{location.href=code;},identityBookmark);
+    await identityPage.locator('[data-sourcepin-root]').waitFor();
+    assert.deepEqual(await readIdentity(),before,'the bookmarklet leaves the page title, head and icons untouched');
+    assert.equal((await browserCdp.send('Target.getTargets',{filter:[{type:'tab',exclude:false}]})).targetInfos.find(info=>info.url===identityPage.url()).title,'订单详情 · 真实网站','the tab title survives the bookmark run too');
+    await escapeUntilClosed(identityPage);await identityPage.close();
+    results.push('Neither adapter renames the page or repaints its icon');
+  }
+
   const root=page.locator('[data-sourcepin-root]');
   const onboarding=root.locator('[data-action="onboarding-done"]');
   assert.equal(await onboarding.isVisible(),true);

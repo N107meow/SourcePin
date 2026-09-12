@@ -7,6 +7,11 @@ export const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, c
 export function contentNodes(element: Element): Node[] {
   return [...(element.localName === 'template' ? (element as HTMLTemplateElement).content.childNodes : element.childNodes)];
 }
+/** Open shadow content is walked like light DOM: a text node is a legitimate
+ * child of a shadow root and must keep its position in the rendered order. */
+export function shadowContentNodes(element: Element): Node[] {
+  return element.shadowRoot ? [...element.shadowRoot.childNodes] : [];
+}
 export function markupTags(node: NodeSnapshot): [string,string] {
   const attributes={...node.attributes,class:[node.attributes.class,node.key,node.styleKey].filter(Boolean).join(' ')};
   const attrs=Object.entries(attributes).map(([name,value])=>` ${name}="${escapeHtml(value)}"`).join('');
@@ -44,14 +49,20 @@ export function serialize(root: Element,snapshots: Map<Element,NodeSnapshot>,max
       const shadowCss=[...snapshots].filter(([el])=>el.getRootNode()===element.shadowRoot).map(([,snapshot])=>representatives.get(snapshot.styleKey??snapshot.key)).filter((node):node is NodeSnapshot=>!!node);
       const shadowRules=groupedCss([...new Set(shadowCss)]);
       if(shadowRules)parts.push(`<style>${safeEmbeddedCss(shadowRules)}</style>`);
-      for(const child of [...element.shadowRoot.children])visit(child);
+      push(element, shadowContentNodes(element));
       parts.push('</template>');
     }
-    for(const child of contentNodes(element)){
-      if(child.nodeType===1)visit(child as Element);
-      else if(child.nodeType===3 && !element.matches('textarea,select,option'))parts.push(child as Text);
-    }
+    push(element, contentNodes(element));
     parts.push(close);
+  };
+  // One text rule for light DOM and shadow DOM alike, so escaping, order and
+  // the shared byte budget behave identically in both trees.
+  const push=(element: Element, children: Node[])=>{
+    const textAllowed=!element.matches('textarea,select,option');
+    for(const child of children){
+      if(child.nodeType===1)visit(child as Element);
+      else if(child.nodeType===3 && textAllowed)parts.push(child as Text);
+    }
   };
   visit(root);
   const skeletonBytes=parts.reduce((size,part)=>size+byteLength(typeof part==='string'?part:TEXT_MARKER),0);
