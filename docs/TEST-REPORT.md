@@ -1,5 +1,21 @@
 # SourcePin 整页 DOM、离线包与合规验证
 
+## 补充：仓库精简为“分发 + 源码”两个面
+
+2026-09-12：默认分支改为只承载用户需要的内容，源码与发展历史移到独立分支。
+
+| 分支 | 内容 | 说明 |
+| --- | --- | --- |
+| `main` | `README.md`、`LICENSE` | 用户到达仓库时读到的东西；安装入口在 GitHub Pages 与 Release |
+| `source` | 完整源码、测试、构建脚本、全部历史与文档 | 开发与自行构建用：`npm ci && npm run check`、`npm run delivery` |
+| `gh-pages` | `index.html`、`robot.svg`、`.nojekyll` | Pages 部署源，HTTPS 强制；删除它会让在线安装页 404 |
+
+同时：`v0.1.6` 标签指向 `source` 分支，Release 的 “Source code” 因此是完整源码而不是只剩两个文件的分发分支；`v0.1.0`–`v0.1.5` 六个开发期标签已删除，避免用户下载到旧版本；冗余的 Release 草稿已清理，目前只有一条已发布的 `v0.1.6`。
+
+实测：`main` 树仅 2 个文件；`source` 树 82 个文件；在线安装页 `https://n107meow.github.io/SourcePin/` 返回 200（457480 字节，与本地构建逐字节相同）；在 `source` 分支上 `npm run check` 128/128、`npm run test:e2e` 16/16 通过。
+
+**注意：** `main` 上只有 README 与 LICENSE，因此在 `main` 分支无法运行 `npm run check`；开发与验证请在 `source` 分支进行。
+
 ## 最新补充：只读审查发现的隐私/授权问题修复（v0.1.6）
 
 2026-09-12：针对只读审查报告（审查基线 `30baa6c`，v0.1.5）复现出的八项发现逐条修复。每条都先在本仓库用脚本复现，再改代码，再补断言用户可见结果的回归。**本轮实测**：`npm run check` 通过（类型检查、**128/128** 测试、生产构建），`npm run test:e2e` **16/16** 场景通过。环境：Node v24.16.0、Playwright Chromium 151.0.7922.34、macOS arm64。

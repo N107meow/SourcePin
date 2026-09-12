@@ -4,6 +4,13 @@
 
 线上安装页：<https://n107meow.github.io/SourcePin/>（仓库 Pages 源为 `gh-pages` 分支根目录，HTTPS 强制）。
 
+## 仓库结构
+
+- `main`：只放 `README.md` 与 `LICENSE`，即用户到达仓库时读到的东西。
+- `source`：完整源码、测试、构建脚本、文档与全部历史（开发在此进行；`main` 上没有源码，无法运行 `npm run check`）。
+- `gh-pages`：安装页三件套（`.nojekyll`、`index.html`、`robot.svg`），Pages 从这里发布。删除该分支会让在线安装页 404。
+- `v0.1.6` 标签指向 `source`，因此 Release 的 “Source code” 下载是完整源码。
+
 ## 已准备的文件
 
 运行 `npm ci && npm run build` 后得到：
