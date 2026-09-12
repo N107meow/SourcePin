@@ -4,17 +4,17 @@ SourcePin 是一个本地运行的网页元素采集工具。点击网页组件�
 
 ## 下载当前可用版本
 
-当前源码托管在公开仓库 [N107meow/SourcePin](https://github.com/N107meow/SourcePin)，许可证为 [MIT](LICENSE)。打开 [v0.1.6 下载页](https://github.com/N107meow/SourcePin/releases/tag/v0.1.6)，下载 `sourcepin-0.1.6-delivery.zip` 并解压（包内顶层是 `sourcepin-0.1.6/` 目录），用 Chrome 打开其中的 `install.html`，将 SourcePin 标签拖到书签栏即可使用；扩展用户可加载包内的 `extension/`。
+当前源码托管在公开仓库 [N107meow/SourcePin](https://github.com/N107meow/SourcePin)。打开 [v0.1.6 下载页](https://github.com/N107meow/SourcePin/releases/tag/v0.1.6)，下载 `sourcepin-0.1.6-delivery.zip` 并解压，用 Chrome 打开 `install.html`，将 SourcePin 标签拖到书签栏即可使用；扩展用户可加载包内的 `extension/`。
 
-也可以直接使用仓库的 GitHub Pages 安装页（见下）；GitHub 自动生成的 Source code 压缩包用于开发，不包含构建产物。
+GitHub 自动生成的 Source code 压缩包用于开发，不包含构建产物。当前版本保留已知问题，见该版本的发布说明；后续修复经用户确认后才会推送。GitHub Pages 尚未启用。
 
 ## 更新记录
 
-用户可感知的功能变化见 [GitHub Releases](https://github.com/N107meow/SourcePin/releases)（每个版本的发布说明即更新记录）。版本号与 git 标记一致。
+用户可感知的功能变化见 [GitHub Releases](https://github.com/N107meow/SourcePin/releases)。
 
 ## 安装到浏览器书签栏（主要方式）
 
-1. 打开 SourcePin 安装页：<https://n107meow.github.io/SourcePin/>（本地开发时为 <http://127.0.0.1:4317/dist/site/index.html>）。
+1. 打开 SourcePin 安装页。本地验收地址为 <http://127.0.0.1:4317/dist/site/index.html>；正式发布后使用同仓库的 GitHub Pages 地址。
 2. 显示浏览器书签栏，将页面上的 **SourcePin** 标签拖进去。
 3. 打开要采集的普通网页，点击书签栏里的 SourcePin，即可唤起游戏机。
 
@@ -22,7 +22,7 @@ SourcePin 是一个本地运行的网页元素采集工具。点击网页组件�
 
 GitHub 的仓库 README 会净化可执行链接，因此采用“仓库首页 → GitHub Pages 安装页 → 拖进书签栏”的路线。[GitHub Markup 说明](https://github.com/github/markup)、[GitHub Pages 说明](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)。
 
-线上拖拽安装页由同仓库的 GitHub Pages 承载；离线安装包见上方版本下载页。Pages 的部署步骤与回退方式见 [GitHub 分发说明](docs/PUBLISHING.md)。
+当前源码与安装包已在 GitHub 发布，GitHub Pages 尚未启用；可先从上方版本下载页获取离线安装包。Pages 安装页的部署步骤见 [GitHub 分发说明](docs/PUBLISHING.md)。
 
 ## Chrome 扩展（可选增强版）
 
@@ -129,7 +129,7 @@ npm run delivery  # 在 artifacts/sourcepin-<版本>/ 生成可直接分发的�
 
 打开 [本地验收页](http://127.0.0.1:4317) 可直接体验共享内核。书签版产物是 `dist/sourcepin.bookmarklet.txt`：它与扩展共用采集内核，但没有扩展截图和跨会话偏好保存，并且可能受目标页 CSP 限制。源码检出后须先构建生成 dist。
 
-现行能力契约与逐条验收规格见 [docs/ACCEPTANCE-SPEC.md](docs/ACCEPTANCE-SPEC.md)，手工步骤见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)，实测数字见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)。源码与安装包托管于 N107meow/SourcePin，许可证为 MIT。
+现行能力契约与逐条验收规格见 [docs/ACCEPTANCE-SPEC.md](docs/ACCEPTANCE-SPEC.md)，手工步骤见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)，实测数字见 [docs/TEST-REPORT.md](docs/TEST-REPORT.md)。源码与安装包托管于 N107meow/SourcePin；许可证尚未决定，后续修改经用户确认后才会推送。
 
 ## 权利与合规
 
@@ -137,6 +137,6 @@ npm run delivery  # 在 artifacts/sourcepin-<版本>/ 生成可直接分发的�
 
 导出前会在本地扫描邮箱、手机号、身份证号及地址模式，只显示疑似匹配的去重计数，由你选择继续或取消。启发式检测可能误报或漏报，不等同于匿名化；截图没有 OCR 检测，像素文字可能含个人信息。DOM 过滤也不能保证清除全部个人信息。将导出内容粘贴给 LLM，即将内容交给该第三方处理；SourcePin 本身不上传内容。
 
-本仓库以 [MIT 许可证](LICENSE) 发布：允许使用、修改、分发与商用，需保留版权与许可声明。导出内容（网页文本、图片、Logo）的权利仍归原站/原作者，许可证不授予这些内容的使用权。若未来上架浏览器商店，仍需准备隐私政策与数据用途说明。
+当前仓库没有 `LICENSE` 文件，默认保留所有权利，尚未授予开源使用、修改或分发许可。**待用户决策：选择许可证**；在决定前不自行添加许可证。正式分发前还需确认可接受使用政策（AUP）与使用条款，风险分配条款不能免除法定义务。
 
 权限保持 `activeTab + scripting + storage`，仅可选 `downloads`；没有 `<all_urls>`、`tabs`、`cookies` 或 `webRequest`。若未来上架 Chrome 应用商店，待办包括 privacy policy URL、数据用途披露与 single purpose 说明。目前未申请上架。
