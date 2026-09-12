@@ -7,6 +7,17 @@ import { resolve } from 'node:path';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 
 const base=process.env.SOURCEPIN_TEST_URL || 'http://127.0.0.1:4317';
+// The suite navigates to a local server first. Without this check an unreachable
+// server surfaces much later as chrome-error://chromewebdata/, which reads like a
+// product failure instead of a missing `npm run dev`.
+try{
+  const probe=await fetch(base,{signal:AbortSignal.timeout(4000)});
+  if(!probe.ok)throw new Error(`HTTP ${probe.status}`);
+}catch(error){
+  console.error(`Acceptance server is not reachable at ${base} (${error instanceof Error?error.message:String(error)}).`);
+  console.error('Start it with `npm run dev` in another terminal, then run this suite again.');
+  process.exit(1);
+}
 await mkdir('artifacts',{recursive:true});
 const extension=resolve('dist/extension');
 const context=await chromium.launchPersistentContext('',{

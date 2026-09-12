@@ -11,6 +11,8 @@ npm run dev
 
 在 Chrome 打开 <http://127.0.0.1:4317>。若要验收扩展能力，再到 `chrome://extensions` 开启开发者模式，加载 `dist/extension`。
 
+自动化端到端（`npm run test:e2e`）依赖上面这个本地服务：它先导航到该地址，服务不可用时会立即报错并提示用 `npm run dev` 启动，而不是给出误导性的失败。
+
 ## 1. 书签安装、唤起与退出（1 分钟）
 
 打开 <http://127.0.0.1:4317/dist/site/index.html>，将 SourcePin 标签拖到 Chrome 书签栏。然后打开验收页，点击刚保存的书签。也可在安装页点“唤起 SourcePin”先体验。
