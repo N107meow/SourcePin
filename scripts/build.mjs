@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import { ICON_SIZES, ICON_SVG } from './make-icons.mjs';
 import { mkdir, copyFile, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const readDirSafe=async dir=>{try{return await readdir(dir);}catch{return [];}};
 await mkdir('dist/extension',{recursive:true});
@@ -33,7 +34,19 @@ const iconHref=`data:image/svg+xml;charset=utf-8,${encodeURIComponent(ICON_SVG.r
 await writeFile('dist/site/index.html',(await readFile('site/index.html','utf8')).replaceAll('{{BOOKMARKLET}}',escaped).replaceAll('{{PREVIEW_BOOKMARKLET}}',escapedPreview).replaceAll('{{ICON}}',iconHref));
 await copyFile('src/assets/robot.svg','dist/site/robot.svg');
 await writeFile('dist/site/.nojekyll','');
-await writeFile('dist/extension/INSTALL.txt','SourcePin 0.1.0\n\n打开 chrome://extensions，开启开发者模式，点击“加载已解压的扩展程序”，选择本文件所在的 extension 文件夹。\n打开普通网页，点击 SourcePin 扩展图标或 Cmd/Ctrl+Shift+Y。\n点击只选中，Cmd/Ctrl+C 才复制。\n');
+await writeFile('dist/extension/INSTALL.txt',`SourcePin ${version}\n\n打开 chrome://extensions，开启开发者模式，点击“加载已解压的扩展程序”，选择本文件所在的 extension 文件夹。\n打开普通网页，点击 SourcePin 扩展图标或 Cmd/Ctrl+Shift+Y。\n点击只选中，Cmd/Ctrl+C 才复制。\n`);
 try{execFileSync('zip',['-q','-r',`../sourcepin-${version}-chrome.zip`,'.'],{cwd:'dist/extension'});}catch{console.warn('ZIP tool unavailable; unpacked extension is ready in dist/extension');}
 execFileSync('zip',['-q','-r','../sourcepin-site.zip','.'],{cwd:'dist/site'});
+// Checksums are part of the build, not a manual follow-up: a rebuild must never
+// leave SHA256SUMS describing the previous artifacts.
+const artifacts=[];
+for(const name of await readDirSafe('dist'))if(name.startsWith('sourcepin-')&&name.endsWith('.zip'))artifacts.push(name);
+artifacts.push('sourcepin.js','sourcepin.bookmarklet.txt');
+const lines=[];
+for(const name of artifacts.sort()){
+  const bytes=await readFile(`dist/${name}`);
+  lines.push(`${createHash('sha256').update(bytes).digest('hex')}  dist/${name}`);
+}
+await writeFile('dist/SHA256SUMS',lines.join('\n')+'\n');
 console.log('Built extension, bookmarklet and GitHub Pages installation site in dist/');
+console.log(`Checksums written for ${artifacts.length} artifacts (version ${version})`);
