@@ -1,6 +1,6 @@
 {
   "name": "sourcepin",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "Pick a web element. Give your agent the context.",

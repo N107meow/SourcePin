@@ -4,7 +4,7 @@ SourcePin 是一个本地运行的网页元素采集工具。点击网页组件�
 
 ## 更新记录
 
-用户可感知的功能变化记录在 [`CHANGELOG.md`](./CHANGELOG.md)，与 git 标记（`v0.1.0`、`v0.1.1`、`v0.1.2`、`v0.1.3`）口径一致。
+用户可感知的功能变化记录在 [`CHANGELOG.md`](./CHANGELOG.md)，与 git 标记（`v0.1.0`、`v0.1.1`、`v0.1.2`、`v0.1.3`、`v0.1.4`）口径一致。
 
 ## 安装到浏览器书签栏（主要方式）
 
@@ -20,9 +20,9 @@ GitHub 的仓库 README 会净化可执行链接，因此采用“仓库首页 �
 
 ## Chrome 扩展（可选增强版）
 
-项目已经提供 `dist/sourcepin-0.1.3-chrome.zip` 和 `dist/extension`：
+项目已经提供 `dist/sourcepin-0.1.4-chrome.zip` 和 `dist/extension`：
 
-1. 解压 `dist/sourcepin-0.1.3-chrome.zip`；也可以直接使用交付目录中的 `dist/extension`。
+1. 解压 `dist/sourcepin-0.1.4-chrome.zip`；也可以直接使用交付目录中的 `dist/extension`。
 2. 打开 `chrome://extensions`，开启“开发者模式”。
 3. 点击“加载已解压的扩展程序”，选择解压后的目录或 `dist/extension`。
 4. 打开普通 HTTP/HTTPS 网页，点击 SourcePin 扩展图标，或按 `Cmd/Ctrl+Shift+Y` 唤起。
@@ -31,7 +31,7 @@ GitHub 的仓库 README 会净化可执行链接，因此采用“仓库首页 �
 
 ## 使用
 
-书签图标：安装页上的 SourcePin 标签自带方形图标，网页上唤起 SourcePin 时也会把页面图标设为同一个图标（canvas 绘制，严格 CSP 页面同样生效）。浏览器给书签显示哪个图标由它自己决定：`javascript:` 书签没有可抓取的站点图标，实测无法从程序侧保证书签栏那一项一定显示方形图标。
+书签图标：安装页上的 SourcePin 标签自带方形图标，扩展版的工具栏按钮和扩展管理页也用它。浏览器给书签栏显示哪个图标由浏览器自己决定：`javascript:` 书签没有可抓取的站点图标，SourcePin 不去改运行页面的图标，也不保证书签栏那一项显示方形图标。
 
 使用引导只在安装页首次点击“唤起 SourcePin”体验时显示；书签在目标网站唤起时直接进入拾取，不再反复弹出引导。安装页仅保存一个本地“已显示引导”标记，关闭、刷新、换页后仍有效；清除站点数据会重置，存储被禁用时只能在当前页面记住。扩展版把该标记保存在扩展本地设置中，跨网站也只显示一次。首次引导一出现就记为已显示，直接按 Esc 关闭也不会在下一次重复。
 
