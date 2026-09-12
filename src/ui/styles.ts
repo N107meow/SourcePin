@@ -3,7 +3,13 @@ export const INSPECTOR_CSS = `
 *, *::before, *::after { box-sizing: border-box; }
 button, input, select { font: inherit; }
 button { margin: 0; border: 0; color: inherit; cursor: pointer; }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #fff; box-shadow: 0 0 0 5px #1c1008; }
+/* Console controls are hotspots laid over the artwork: a focus ring around an
+   invisible rectangle reads as a selection box, and a click followed by Escape
+   (the browser flips to keyboard modality) painted one on its own. Panel
+   controls keep a ring, because there the user navigates by keyboard. */
+.panel button:focus-visible, .panel input:focus-visible, .panel select:focus-visible { outline: 3px solid #fff; box-shadow: 0 0 0 5px #1c1008; }
+/* No ring at all on the console's own controls, including the browser default. */
+.hotspot:focus-visible, .screen:focus-visible, .drag-handle:focus-visible, .inspector-close:focus-visible, .mode-switch:focus-visible { outline: none; }
 .stage { position: relative; width: 220px; height: 348px; user-select: none; touch-action: none; }
 .robot { position: absolute; left: 16px; top: 16px; width: 188px; height: 316px; }
 .asset { position: absolute; inset: 0 auto auto 0; display: block; width: 188px; height: 264px; object-fit: contain; pointer-events: none; }
@@ -16,9 +22,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .copy { left: 132px; top: 158px; width: 24px; height: 24px; }
 .robot[data-copied="true"] .asset [id="Vector_9"] { fill: #42d47b; }
 .asset [id^="Vector"], .asset [id="Group"] { transform-box: fill-box; transform-origin: center; }
+/* The m glyph sits 1/5 of its own height higher than the artwork draws it; the
+   hotspot below moves by the same distance so the hit area still covers it. */
+.asset [id="Vector_8"] { transform: translateY(-20%); }
 .settings-button { left: 136px; top: 187px; width: 21px; height: 21px; }
 .capture { left: 114px; top: 207px; width: 24px; height: 20px; border-radius: 6px; }
-.download { left: 38px; top: 184px; width: 38px; height: 38px; border-radius: 6px; }
+.download { left: 38px; top: 177.6px; width: 38px; height: 38px; border-radius: 6px; }
 .gear { left: 101px; top: 174px; width: 27px; height: 26px; }
 .inspector-close { position: absolute; right: -8px; top: -8px; width: 27px; height: 27px; border: 3px solid #1c1008; border-radius: 50%; background: #fffdf6; font-size: 18px; line-height: 18px; box-shadow: 2px 2px 0 rgb(28 16 8 / .2); }
 .screen { position: absolute; left: 28px; top: 23px; width: 132px; height: 107px; padding: 14px 12px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; overflow: hidden; border-radius: 12px; background: transparent; cursor: pointer; }
@@ -35,7 +44,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .mode-picker { position: absolute; left: 0; right: 0; top: 272px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
 .mode-picker[hidden] { display: none; }
 .mode-switch { flex: none; position: relative; width: 44px; height: 22px; padding: 0; border: 0; box-shadow: inset 0 0 0 2.5px #1c1008; border-radius: 999px; background: #59ac9d; }
-.mode-switch:focus-visible { outline: 2px dashed #1c1008; outline-offset: 3px; box-shadow: inset 0 0 0 2.5px #1c1008; }
 .mode-switch::after { content: ""; position: absolute; left: 3.5px; top: 50%; width: 15px; height: 15px; border: 2px solid #1c1008; border-radius: 50%; background: white; transform: translateY(-50%); transition: transform .18s ease; }
 .robot[data-mode="pro"] .mode-switch { background: #ff003f; }
 .robot[data-mode="pro"] .mode-switch::after { transform: translate(22px, -50%); }

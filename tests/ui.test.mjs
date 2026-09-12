@@ -210,6 +210,80 @@ test('press animates the visible vector button and respects reduced motion',asyn
   await page.close();
 });
 
+test('each console button animates the glyph under its own hotspot',async()=>{
+  const page=await fixture();
+  await page.waitForFunction(()=>document.querySelector('sourcepin-inspector').shadowRoot.querySelector('.asset-lite')?.tagName.toLowerCase()==='svg');
+  // Dispatching the press directly keeps panels from opening over later buttons.
+  const pressed=async selector=>{
+    await page.locator(selector).dispatchEvent('pointerdown');
+    const ids=await page.locator('sourcepin-inspector').evaluate(h=>[...h.shadowRoot.querySelectorAll('.asset *')]
+      .filter(el=>(el.getAnimations?.()??[]).some(a=>a.effect?.getTiming().fill==='forwards'))
+      .map(el=>el.id));
+    await page.locator(selector).dispatchEvent('pointerup');
+    await page.waitForTimeout(320);
+    return [...new Set(ids)];
+  };
+  // The gear and the blue circle used to animate each other: the mapping still
+  // described the artwork's layout from before the two actions were swapped.
+  assert.deepEqual(await pressed('.gear'),['Group'],'the gear animates the gear');
+  assert.deepEqual(await pressed('.settings-button'),['Vector_12'],'the blue circle animates itself');
+  assert.deepEqual(await pressed('.download'),['Vector_8'],'the m animates itself');
+  assert.deepEqual(await pressed('.copy'),['Vector_9']);
+  assert.deepEqual(await pressed('.capture'),['Vector_13']);
+  await page.close();
+});
+
+test('the m glyph sits one fifth of its own height higher and its hotspot follows',async()=>{
+  const page=await fixture();
+  await page.waitForFunction(()=>document.querySelector('sourcepin-inspector').shadowRoot.querySelector('.asset-lite')?.tagName.toLowerCase()==='svg');
+  const geometry=await page.locator('sourcepin-inspector').evaluate(h=>{
+    const root=h.shadowRoot;
+    const glyph=root.querySelector('.asset-lite [id="Vector_8"]');
+    const hotspot=root.querySelector('.download');
+    const matrix=new DOMMatrix(getComputedStyle(glyph).transform);
+    const glyphBox=glyph.getBoundingClientRect(),hotBox=hotspot.getBoundingClientRect();
+    return {lift:-matrix.f, fifth:glyph.getBBox().height/5,
+      covers:hotBox.top<=glyphBox.top&&hotBox.bottom>=glyphBox.bottom,
+      coversWidth:hotBox.left<=glyphBox.left&&hotBox.right>=glyphBox.right};
+  });
+  // transform-box: fill-box resolves the percentage against the glyph's own box.
+  assert.ok(Math.abs(geometry.lift-geometry.fifth)<0.05,`lift ${geometry.lift} is one fifth of ${geometry.fifth*5}`);
+  assert.deepEqual({covers:geometry.covers,coversWidth:geometry.coversWidth},{covers:true,coversWidth:true},'the hit area still covers the glyph');
+  await page.close();
+});
+
+test('console controls paint no focus ring, panels keep theirs for the keyboard',async()=>{
+  for(const selector of ['.gear','.settings-button','.copy','.capture','.screen','.download']){
+    const page=await fixture();
+    await page.locator(selector).click({force:true});
+    // Escape flips the browser to keyboard modality, which is what used to make
+    // the ring appear on the button the user had just clicked.
+    await page.keyboard.press('Escape');
+    const state=await page.locator('sourcepin-inspector').evaluate(h=>{
+      const active=h.shadowRoot.activeElement;
+      return active?{cls:active.className,outline:getComputedStyle(active).outlineStyle}:null;
+    });
+    assert.equal(state?.outline,'none',`${selector} paints no focus outline`);
+    await page.close();
+  }
+  const page=await fixture();
+  await page.locator('.gear').click();
+  // Walk in with Tab rather than focus() from script, so the browser's own
+  // keyboard heuristic decides - that is what a keyboard user actually does.
+  let ring=null;
+  for(let attempt=0;attempt<20&&!ring;attempt++){
+    await page.keyboard.press('Tab');
+    ring=await page.locator('sourcepin-inspector').evaluate(h=>{
+      const active=h.shadowRoot.activeElement;
+      if(!active||!active.closest('[data-panel="settings"]'))return null;
+      const style=getComputedStyle(active);
+      return `${style.outlineWidth} ${style.outlineColor}`;
+    });
+  }
+  assert.equal(ring,'3px rgb(255, 255, 255)','panel controls stay visible to keyboard users');
+  await page.close();
+});
+
 test('only the active vector theme is visible so the body shadow is drawn once',async()=>{
   const page=await fixture();await page.locator('svg.asset-lite').waitFor();
   assert.equal(await page.locator('.asset-lite').isVisible(),true);

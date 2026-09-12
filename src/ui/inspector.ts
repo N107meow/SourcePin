@@ -103,21 +103,29 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     fetch(assetUrl).then(response => response.text()).then(installArtwork).catch(() => {});
   }
 
-  // The actions are swapped relative to where the icons are drawn: the lower-left
-  // m glyph downloads, the gear opens settings and the green icon opens the mode
-  // picker, so each entry maps an action to the glyph users actually see.
-  const iconIds: Record<string,string> = {copy:'Vector_9', 'settings-panel':'Vector_12', 'capture-panel':'Vector_13', download:'Vector_8', 'mode-picker':'Group'};
+  // Each entry maps an action to the glyph that sits under its hotspot, so a
+  // press animates the button the user actually clicked. The gear glyph is the
+  // "Group"; the mode picker's hotspot covers the blue circle.
+  const iconIds: Record<string,string> = {copy:'Vector_9', 'settings-panel':'Group', 'capture-panel':'Vector_13', download:'Vector_8', 'mode-picker':'Vector_12'};
+  // The m glyph carries a standing offset so it clears the artwork's baseline.
+  // A press animation replaces transform outright, so it has to compose with
+  // that offset instead of snapping the glyph back to its drawn position.
+  const iconLift: Record<string,string> = {Vector_8:'translateY(-20%)'};
   const chaseIcon = (button: HTMLElement): Element[] => {
     const id = iconIds[button.dataset.action || ''];
     return id ? [...root.querySelectorAll(`.asset [id="${id}"]`)] : [button];
   };
   const animateButton = (button: HTMLElement, pressed: boolean) => {
     const targets: Element[] = chaseIcon(button);
+    const lift = iconLift[iconIds[button.dataset.action || ''] || ''] || '';
+    const rest = lift || 'none';
+    const down = `${lift ? `${lift} ` : ''}translateY(1.5px) scale(.88)`;
+    const up = `${lift ? `${lift} ` : ''}translateY(-3px) scale(1.06)`;
     for (const target of targets) {
       for (const animation of target.getAnimations()) animation.cancel();
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) continue;
-      if (pressed) target.animate([{transform:'none'}, {transform:'translateY(1.5px) scale(.88)'}],{duration:90,fill:'forwards',easing:'ease-out'});
-      else target.animate([{transform:'translateY(1.5px) scale(.88)'},{transform:'translateY(-3px) scale(1.06)',offset:.45},{transform:'none'}],{duration:280,easing:'cubic-bezier(.22,.7,.3,1)'});
+      if (pressed) target.animate([{transform:rest}, {transform:down}],{duration:90,fill:'forwards',easing:'ease-out'});
+      else target.animate([{transform:down},{transform:up,offset:.45},{transform:rest}],{duration:280,easing:'cubic-bezier(.22,.7,.3,1)'});
     }
   };
   root.addEventListener('pointerdown', event => {
