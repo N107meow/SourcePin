@@ -11,7 +11,7 @@
 - `dist/site/.nojekyll`：按静态文件直接发布。
 - `dist/sourcepin-site.zip`：上述网站文件的压缩包。
 - `dist/sourcepin.bookmarklet.txt`：完整书签网址，无本地服务或远程 loader 依赖。
-- `dist/sourcepin-0.1.1-chrome.zip`：可选扩展版，提供 Chrome 截图和本地偏好保存。
+- `dist/sourcepin-0.1.2-chrome.zip`：可选扩展版，提供 Chrome 截图和本地偏好保存。
 
 ## 正式发布时执行
 

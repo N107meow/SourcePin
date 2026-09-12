@@ -276,12 +276,29 @@ test('current mode is readable without opening the mode picker', async () => {
   assert.equal(await page.locator('.mode-picker').isVisible(), false);
   assert.equal(await badge.isVisible(), true);
   assert.equal((await badge.textContent()).trim(), 'LITE');
+  // The badge used to sit at 246px, straddling the chassis bottom edge where it
+  // read as clipped stray text. It must clear the chassis entirely.
+  const placement = await page.evaluate(() => {
+    const root = document.querySelector('sourcepin-inspector').shadowRoot;
+    const badge = root.querySelector('.mode-badge').getBoundingClientRect();
+    const chassis = root.querySelector('.asset-lite').getBoundingClientRect();
+    return { clearsChassis: badge.top >= chassis.bottom, insideRobot: badge.bottom <= root.querySelector('.robot').getBoundingClientRect().bottom };
+  });
+  assert.deepEqual(placement, { clearsChassis: true, insideRobot: true }, 'the badge sits below the chassis, not on its bottom edge');
   await page.evaluate(() => ui.update({ mode: 'pro', status: '', count: 0, summary: '', copied: false,
     busy: false, recording: false, matched: false, markdown: '',
     settings: { mode: 'pro', language: 'zh', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false },
     capabilities: { screenshot: true } }));
   assert.equal(await page.locator('.mode-picker').isVisible(), false);
   assert.equal((await badge.textContent()).trim(), 'PRO');
+  // Opening the picker puts the switch and its own label in the same row, so the
+  // badge yields instead of stacking a second copy of the mode on top of it.
+  await page.locator('.settings-button').click();
+  assert.equal(await page.locator('.mode-picker').isVisible(), true);
+  assert.equal(await badge.isVisible(), false, 'the open picker states the mode itself');
+  assert.equal((await page.locator('.mode-label').textContent()).trim(), 'PRO');
+  await page.locator('.settings-button').click();
+  assert.equal(await badge.isVisible(), true);
   await page.close();
 });
 

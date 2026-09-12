@@ -40,7 +40,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .robot[data-mode="pro"] .mode-switch { background: #ff003f; }
 .robot[data-mode="pro"] .mode-switch::after { transform: translate(22px, -50%); }
 .mode-label { letter-spacing: .06em; font-size: 9px; line-height: 12px; font-weight: 800; }
-.mode-badge { position: absolute; left: 0; right: 0; top: 246px; text-align: center; letter-spacing: .18em; font-size: 10px; line-height: 16px; font-weight: 800; }
+.mode-badge { position: absolute; left: 0; right: 0; top: 299px; text-align: center; letter-spacing: .18em; font-size: 10px; line-height: 16px; font-weight: 800; }
+/* The badge clears the chassis: at 246px it straddled the bottom edge and read
+   as clipped stray text. It also shares its row with the picker's own label, so
+   it yields while the switch is on screen stating the same mode. */
+.mode-picker:not([hidden]) ~ .mode-badge { display: none; }
 .panel { position: fixed; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto; padding: 16px; border: 5px solid #1c1008; border-radius: 22px; background: #fffdf6; box-shadow: 8px 9px 0 rgb(28 16 8 / .22); user-select: text; }
 .panel[hidden] { display: none; }
 .panel[data-panel="preview"] { display: flex; flex-direction: column; padding: 10px; touch-action: pan-y; }
