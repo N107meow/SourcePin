@@ -1,13 +1,24 @@
 import { safeFilename, validateDownload } from '../platform/policy';
+import { injectionFailureTitle } from './status';
 
 async function activate(tab?: chrome.tabs.Tab) {
   if (!tab?.id) return;
+  const tabId = tab.id;
+  const inject = () => chrome.scripting.executeScript({target:{tabId},files:['content.js']});
   try {
-    await chrome.scripting.executeScript({target:{tabId:tab.id},files:['content.js']});
-    await chrome.action.setBadgeText({tabId:tab.id,text:''});
-  } catch {
-    await chrome.action.setBadgeText({tabId:tab.id,text:'!'});
-    await chrome.action.setTitle({tabId:tab.id,title:'此页面不允许注入。请在普通 HTTP/HTTPS 网页使用 SourcePin。'});
+    try {
+      await inject();
+    } catch {
+      // The first injection can lose a race with a page that is still settling;
+      // one retry turns a dead click into a working one.
+      await new Promise(resolve => setTimeout(resolve, 250));
+      await inject();
+    }
+    await chrome.action.setBadgeText({tabId,text:''});
+    await chrome.action.setTitle({tabId,title:'SourcePin'});
+  } catch (error) {
+    await chrome.action.setBadgeText({tabId,text:'!'});
+    await chrome.action.setTitle({tabId,title:injectionFailureTitle(error)});
   }
 }
 chrome.action.onClicked.addListener(activate);

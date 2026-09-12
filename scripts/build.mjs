@@ -1,10 +1,41 @@
 import { build } from 'esbuild';
 import { ICON_SIZES, ICON_SVG } from './make-icons.mjs';
-import { mkdir, copyFile, writeFile, readFile, rename, rm, readdir } from 'node:fs/promises';
+import { mkdir, copyFile, writeFile, readFile, rename, rm, readdir, stat } from 'node:fs/promises';
+import { rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 const readDirSafe=async dir=>{try{return await readdir(dir);}catch{return [];}};
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+// Every build writes the same dist/, and `npm test` starts more than one at a
+// time because two test files each shell out to this script. Two processes
+// zipping one directory can capture each other's half-published files and leave
+// .tmp files behind, so builds take turns through an atomic mkdir lock instead
+// of interleaving. A lock whose owner is gone is stolen immediately.
+const LOCK='dist/.build-lock';
+await mkdir('dist',{recursive:true});
+const ownerAlive=async()=>{
+  const pid=Number(await readFile(`${LOCK}/pid`,'utf8').catch(()=>''));
+  if(!Number.isInteger(pid)||pid<=0)return false;
+  try{process.kill(pid,0);return true;}catch{return false;}
+};
+let locked=false;
+for(let attempt=0;attempt<240&&!locked;attempt++){
+  try{await mkdir(LOCK);locked=true;}
+  catch{
+    if(await ownerAlive())await sleep(250);
+    else await rm(LOCK,{recursive:true,force:true});
+  }
+}
+if(!locked)throw new Error(`Another build has held ${LOCK} for a minute; remove it and build again.`);
+await writeFile(`${LOCK}/pid`,String(process.pid));
+// Cleanup on the way out, including an uncaught error, so the next build never
+// waits on a lock this process forgot to release.
+process.on('exit',()=>{try{rmSync(LOCK,{recursive:true,force:true});}catch{ /* already gone */ }});
+// Leftovers from a build that was killed outright.
+for(const dir of ['dist','dist/site','dist/extension'])
+  for(const name of await readDirSafe(dir))
+    if(name.includes('.build-')&&name.endsWith('.tmp'))await rm(`${dir}/${name}`,{force:true});
 // Everything under dist/ can be read at any moment: the local acceptance server
 // serves it straight off disk, and a browser mid-reload reads dist/site/robot.svg
 // right after index.html. Writing a file in place truncates it first, so a reader

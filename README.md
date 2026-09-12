@@ -4,7 +4,7 @@ SourcePin 是一个本地运行的网页元素采集工具。点击网页组件�
 
 ## 更新记录
 
-用户可感知的功能变化记录在 [`CHANGELOG.md`](./CHANGELOG.md)，与 git 标记（`v0.1.0`、`v0.1.1`、`v0.1.2`、`v0.1.3`、`v0.1.4`）口径一致。
+用户可感知的功能变化记录在 [`CHANGELOG.md`](./CHANGELOG.md)，与 git 标记（`v0.1.0`、`v0.1.1`、`v0.1.2`、`v0.1.3`、`v0.1.4`、`v0.1.5`）口径一致。
 
 ## 安装到浏览器书签栏（主要方式）
 
@@ -20,9 +20,9 @@ GitHub 的仓库 README 会净化可执行链接，因此采用“仓库首页 �
 
 ## Chrome 扩展（可选增强版）
 
-项目已经提供 `dist/sourcepin-0.1.4-chrome.zip` 和 `dist/extension`：
+项目已经提供 `dist/sourcepin-0.1.5-chrome.zip` 和 `dist/extension`：
 
-1. 解压 `dist/sourcepin-0.1.4-chrome.zip`；也可以直接使用交付目录中的 `dist/extension`。
+1. 解压 `dist/sourcepin-0.1.5-chrome.zip`；也可以直接使用交付目录中的 `dist/extension`。
 2. 打开 `chrome://extensions`，开启“开发者模式”。
 3. 点击“加载已解压的扩展程序”，选择解压后的目录或 `dist/extension`。
 4. 打开普通 HTTP/HTTPS 网页，点击 SourcePin 扩展图标，或按 `Cmd/Ctrl+Shift+Y` 唤起。
