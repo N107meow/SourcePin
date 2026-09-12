@@ -37,7 +37,7 @@ npm run dev
 
 ## 5. Lite / Pro 与录制（2 分钟）
 
-先点齿轮显示 Switch，再点 Switch 切换到 Pro，选择“查看项目”按钮；打开蓝色设置面板，开始录制。正常把鼠标移入、聚焦并点击该按钮，再停止录制。
+先点左下角绿色图标显示 Switch，再点 Switch 切换到 Pro，选择“查看项目”按钮；点机身右下角的齿轮图形打开设置面板，开始录制。正常把鼠标移入、聚焦并点击该按钮，再停止录制。
 
 预期：掌机变为红色主题，选中内容重新按 Pro 采集。录制期间原网页交互正常执行，停止后预览或导出包含实际观察到的状态和迁移。停止录制后不会自动恢复拾取；按一次 Esc，或打开设置并点“重新选择元素”后，可以选择下一目标。
 
@@ -51,7 +51,9 @@ npm run dev
 
 点击黄色 M，或尝试 `Cmd/Ctrl+Shift+M`。
 
-预期：先显示本地导出确认；取消时不写文件，继续后浏览器请求可选下载权限或发起普通下载，得到可打开的 `.md` 文件。快捷键若被浏览器占用，可在 `chrome://extensions/shortcuts` 修改；黄色 M 始终可用。取消保存不应显示已经保存成功。
+预期：本次唤起后的**第一次**导出显示本地完整确认；取消时不写文件，继续后浏览器请求可选下载权限或发起普通下载，得到可打开的 `.md` 文件。确认一次后，屏幕底部出现一行小字「已确认 · 声明」，点击可重新打开只读的完整声明。这行只在选中或复制状态下出现；清空选择后屏幕应只保留笑脸，不残留文字。
+
+再复制一次：不应再弹确认框，直接复制；这行小字仍在。随后选中含个人信息的内容（如验收页的邮箱字段）再导出：应重新显示完整确认且计数大于 0，取消则不导出。截图（截取组件／截取当前视口）也共用这一次确认：本次唤起内已经确认过之后，再截图不应再弹窗，直接保存。快捷键若被浏览器占用，可在 `chrome://extensions/shortcuts` 修改；黄色 M 始终可用。取消保存不应显示已经保存成功。
 
 ## 8. 隐私与书签版边界（2 分钟）
 
@@ -65,10 +67,11 @@ npm run dev
 ## 本轮视觉核对
 
 - Lite / Pro 机身和底部 Switch 颜色同步，机身阴影只沿右下轮廓出现，没有矩形背景。
+- 面板配色跟随模式：Lite 下设置/画面采集面板的按钮为青绿、关闭圆钮为黄色，与机身一致；切到 Pro 后同一面板的按钮变粉红、关闭圆钮变红色，与红色机身一致。勾选框的强调色同样跟随。面板打开时切换模式，配色应立即随之改变。
 - 可见的圆形按钮、M、三角与齿轮在按下时收缩，松开后回弹；系统减少动态效果设置下停用。
-- Switch 默认隐藏，只由齿轮单击显示或隐藏；显示时在机身下方居中，轨道 44×22，拇指15，视觉轨道描边2.5、拇指描边2、标签9 px。
+- Switch 默认隐藏，只由左下角绿色图标单击显示或隐藏；显示时在机身下方居中，轨道 44×22，拇指15，视觉轨道描边2.5、拇指描边2、标签9 px。设置面板由机身右下角的齿轮图形打开，两者功能互不重叠。
 - 选中组件并打开任意面板后，第一次 Esc 只关闭面板，选择与已捕获结果都保留；再按 Esc 才取消选择，掌机保留；下一次 Esc 才退出。导出确认框上按 Esc 等于取消本次导出，选择仍然保留，可以再次复制或下载。
-- 机身下方常驻显示当前模式 `LITE` / `PRO`（不点齿轮也能读到），颜色只是辅助；机身下方的 Switch 仍只在点齿轮后出现。
+- 机身下方常驻显示当前模式 `LITE` / `PRO`（不点绿色图标也能读到），颜色只是辅助；机身下方的 Switch 仍只在点绿色图标后出现。
 - 书签版或安装页里点三角打开画面采集：「截取组件」「截取当前视口」为禁用态，面板内有一行说明截图需要 Chrome 扩展版，两个按钮的 `title` 同样说明原因；「捕获整页 DOM」「追加当前视口」仍可用。扩展到 `chrome://extensions` 重新加载后，这两个按钮恢复可用且不再显示说明。
 - Lite 下打开设置，「开始录制」显示为「切换到 Pro 并开始录制」；点一次后掌机变红、屏幕显示「录制中」，按钮变为「停止录制」。
 - 未选择任何元素时点「追加当前视口」，应出现「先选择一个元素，再追加视口」提示，而不是毫无反应。
@@ -83,7 +86,8 @@ npm run dev
 
 打开 `http://127.0.0.1:4317/demo/page-capture.html`，保持 Lite，点击三角 → 捕获整页 DOM → 黄色 M → 继续导出。
 
-- 下载 ZIP，解压后双击 page.html 可离线查看。report.md 包含非空 Cleaned HTML、Row 1199、长中文/emoji 文本、声明式 shadow template 和普通 template；内联定位与 srcset/sizes 保留。
+- 下载 ZIP，解压后双击 page.html 可离线查看。report.md 包含非空 Cleaned HTML、Row 1199、长中文/emoji 文本、声明式 shadow template 和普通 template；内联定位与 sizes 保留。
+- 图片位置显示灰色占位而不是原图，`assets.json` 的 `mode` 为 `marked-not-fetched` 且每个图片 URL 的 `status` 为 `marked`。整页导出过程中不应出现任何图片请求（可在网络面板确认）；再次导出同一个含大量图片的页面，ZIP 体积不应随图片大小增长。
 - Meta 显示 captureKind=page、页面总高、html rect 与图片统计；Capabilities 紧接 Meta，说明各项 present/absent。Degradations 列出隐藏子树、iframe、样式采样及其他限制。
 - 默认不应出现 HIDDEN_FIXTURE_PRIVATE、PAYWALL_FIXTURE_PRIVATE、FORM_FIXTURE_PRIVATE 等测试正文。
 - 设置中明确勾选「包含隐藏内容」后重新采集，隐藏正文可出现，节点标记 data-sourcepin-hidden=true。表单值、脚本和敏感属性仍不应出现。
@@ -98,15 +102,15 @@ npm run dev
 - 复制与下载口径不同：屏幕预览与 `Cmd/Ctrl+C` 得到摘要，下载得到全文。两者都不应泄露敏感值。
 - 解压 page.html 双击离线打开：第 1199 行的正文 `p` 与线上一致（font-size `16px`、color `rgb(32, 60, 49)`、display `block`、padding `0px`），shadow 与 template 内容同样有样式，页面无脚本、无外部请求。
 - 捕获的 `page.html` 内每个节点带 `sp-*` 类；相同签名的节点共用同一个 `sp-s-N` 规则。样式覆盖是有界代表采样：Degradations 里应能读到「采样了几个节点、覆盖了多少、多少节点没有捕获规则」，以及同签名可能被代表样式近似的说明。不要把它读成逐节点完整样式归档。
-- srcset 含逗号的 CDN 候选（如 `/cdn-cgi/image/width=128,quality=85,format=auto,fit=scale-down/...`）应作为单个 URL 保留：解压后 page.html 的 `srcset` 与 structure.json 中同一节点完全相等，assets.json 只列出真实抓取的候选数，不出现被错切出的 `quality`、`format`、`fit` 请求。非法描述符与 `javascript:`、`data:text/html` 候选被丢弃，token 查询参数脱敏。
+- srcset 含逗号的 CDN 候选（如 `/cdn-cgi/image/width=128,quality=85,format=auto,fit=scale-down/...`）应被识别为单个 URL：assets.json 中每个候选是一条完整记录，不出现被错切出的 `quality`、`format`、`fit` 条目。page.html 中该节点不再保留 `srcset`（避免浏览器按它请求原站），完整候选列表仍可在 structure.json 的同一节点读取。非法描述符与 `javascript:`、`data:text/html` 候选被丢弃，token 查询参数脱敏。
 
 ## 离线包与取消检查
 
 - 固定页有 8,000 个 article，高度超过 100 万 px；默认字节预算会截断，Degradations 必须说明结构预算，不能将其说成采集了全部页面。
-- 解压得到 page.html、structure.json、assets.json 和 report.md；在离线模式打开 page.html，顶部标题、图片、Shadow 文本可见，template 保持惰性；没有脚本和外部网络依赖。
+- 解压得到 page.html、structure.json、assets.json 和 report.md；在离线模式打开 page.html，顶部标题、图片位置占位、Shadow 文本可见，template 保持惰性；没有脚本和外部网络依赖，也没有任何图片请求。
 - 截断、隐藏排除、移除属性名及次数、图片失败原因可在报告或 JSON 清单中核查；无法读取的图片显示占位。
 - 在确认窗点击取消：剪贴板保持原值、不发起下载；按 Esc 清空选择并取消导出；确认期间改动目标后不能直接导出该旧快照。
-- 图片按需下载最多 80 个、单个 2 MiB/累计 4 MiB/20 秒；整个 ZIP 16 MiB，HTML 8 MiB，Markdown 4 MiB。超限拒绝导出，不产出残缺文件。
+- 图片不下载、不内联，只在原位标记，因此没有图片数量或体积预算。整个 ZIP 16 MiB，单份 HTML 8 MiB，Markdown 4 MiB；超限时会在错误信息中列出各部分的实际字节数，便于判断该缩减哪一部分。
 
 ## 首次引导
 

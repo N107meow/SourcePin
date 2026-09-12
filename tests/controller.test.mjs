@@ -49,7 +49,7 @@ test('repick cancels an in-flight capture and ignores its late result',async()=>
     await page.addScriptTag({content:await controllerFixture('lite','async()=>new Promise(resolve=>{window.finishFramework=resolve})')});
     await page.evaluate(()=>window.startTest());await page.getByTestId('slow').click();
     await page.waitForFunction(()=>!!window.finishFramework);
-    await page.locator('[data-action="settings-panel"]').click();await page.locator('[data-action="repick"]').click();
+    await page.locator('.gear').click();await page.locator('[data-action="repick"]').click();
     assert.equal(await page.locator('.robot').evaluate(el=>el.classList.contains('busy')),false);
     await page.evaluate(()=>window.finishFramework(undefined));await page.waitForTimeout(50);
     assert.equal(await page.locator('.screen-count').textContent(),'');
@@ -122,7 +122,7 @@ test('Escape unwinds one layer at a time: panel, selection, exit',async()=>{
       throw new Error(`Escape layer did not report: ${want}`);
     };
     assert.equal(await count(),'1');
-    await page.locator('[data-action="settings-panel"]').click();
+    await page.locator('.gear').click();
     assert.equal(await page.locator('[data-panel="settings"]').isVisible(),true);
     // Layer 1: the dialog closes by itself and the selection survives.
     await press('面板');
@@ -169,7 +169,7 @@ test('recording reaches Pro and starts in the same gesture from Lite',async()=>{
     const page=await browser.newPage();await page.setContent('<section data-testid="lite-record"><button data-testid="lite-record-child">Act</button></section>');
     await page.addScriptTag({content:await controllerFixture('lite')});await page.evaluate(()=>window.startTest());
     await page.getByTestId('lite-record-child').click({position:{x:5,y:5}});await settled(page);
-    await page.locator('[data-action="settings-panel"]').click();
+    await page.locator('.gear').click();
     const record=page.getByRole('button',{name:'切换到 Pro 并开始录制'});
     assert.equal(await record.isVisible(),true);
     await record.click();
@@ -272,11 +272,22 @@ test('whole-page action in Lite exports markup, reports adapter results and keep
     const md=await page.evaluate(()=>window.downloaded);
     assert.match(md,/## Cleaned HTML/);assert.match(md,/Page item 1099/);assert.match(md,/"captureKind": "page"/);assert.doesNotMatch(md,/hidden-private|without a platform adapter/);
     assert.match(md,/framework: present/);assert.match(md,/## Capabilities/);
-    await page.locator('[data-action="settings-panel"]').click();await page.locator('[name="includeHidden"]').check();await settled(page);
+    await page.locator('.gear').click();await page.locator('[name="includeHidden"]').check();await settled(page);
     await page.locator('.download').click();await confirmExport(page);await page.waitForFunction(()=>window.downloaded.includes('data-sourcepin-hidden'));
     assert.match(await page.evaluate(()=>window.downloaded),/"captureKind": "page"/);
-    await page.keyboard.press('Escape');await page.getByText('Page item 0',{exact:true}).click();await settled(page);
-    await page.locator('.download').click();await confirmExport(page);await page.waitForFunction(()=>window.downloaded.includes('"captureKind": "element"'));
+    // The first Escape only closes the capture panel; clearing the page
+    // selection needs another press before an element can be picked again.
+    for(let attempt=0;attempt<3;attempt++){
+      if(await page.locator('sourcepin-inspector .screen-count').textContent()==='')break;
+      await page.keyboard.press('Escape');await page.waitForTimeout(60);
+    }
+    assert.equal(await page.locator('sourcepin-inspector .screen-count').textContent(),'');
+    await page.getByText('Page item 0',{exact:true}).click();await settled(page);
+    // Later exports in the same activation skip the review, so wait for the new
+    // content instead of assuming the dialog mediated the download.
+    const previous=await page.evaluate(()=>window.downloaded);
+    await page.locator('.download').click();await confirmExport(page);
+    await page.waitForFunction(before=>typeof window.downloaded==='string' && window.downloaded!==before && window.downloaded.includes('"captureKind": "element"'),previous);
     assert.doesNotMatch(await page.evaluate(()=>window.downloaded),/## Cleaned HTML/);
   }finally{await browser.close();}
 });
@@ -307,5 +318,125 @@ test('preview remains bounded for a capture whose full report exceeds 4 MiB; cop
   assert.doesNotMatch(preview,/exceeds|捕获未完成|Error/);
   await page.locator('.copy').click();await confirmExport(page);await page.waitForFunction(()=>!!window.copied);
   assert.equal(await page.evaluate(()=>window.copied),preview);
+ }finally{await browser.close();}
+});
+
+test('the export review opens once per activation, keeps its notices readable, and reopens read-only',async()=>{
+ const browser=await chromium.launch({headless:true});
+ try{
+  const page=await browser.newPage();await page.setContent('<p data-testid="plain">Plain target without secrets</p>');
+  await page.addScriptTag({content:await controllerFixture('pro')});await page.evaluate(()=>window.startTest());
+  const reviewVisible=()=>page.locator('[data-panel="review"]').isVisible();
+  const notice=page.locator('sourcepin-inspector .screen-notice');
+  await page.getByTestId('plain').click();await settled(page);
+  assert.equal(await notice.isVisible(),false,'no notice before the first export');
+  // First export: the full review runs and its statement stays on the console.
+  await page.locator('.copy').click();
+  assert.equal(await reviewVisible(),true);
+  assert.match(await page.locator('.review-flow').textContent(),/LLM.*第三方/);
+  await confirmExport(page);await page.waitForFunction(()=>!!window.copied);
+  assert.equal(await reviewVisible(),false);
+  assert.equal(await notice.isVisible(),true);
+  assert.match(await notice.textContent(),/已确认 · 声明/);
+  assert.match(await page.locator('sourcepin-inspector .screen').getAttribute('title'),/第三方处理/,'the full statement stays reachable');
+  // Second export in the same activation: no dialog, the export just proceeds.
+  await page.evaluate(()=>{window.copied=undefined;});
+  await page.locator('.copy').click();
+  await page.waitForTimeout(400);
+  assert.equal(await reviewVisible(),false,'the dialog must not reopen on a later export');
+  assert.match(await page.evaluate(()=>window.copied),/plain/);
+  // The standing notice reopens the same statement, read-only.
+  await notice.click();
+  assert.equal(await reviewVisible(),true);
+  assert.match(await page.locator('.review-title').textContent(),/已于 \d\d:\d\d 确认/);
+  assert.match(await page.locator('.review-counts').textContent(),/邮箱 0/);
+  assert.equal(await page.locator('[data-action="export-confirm"]').isVisible(),false);
+  assert.equal(await page.locator('[data-action="export-cancel"].panel-action').isVisible(),false);
+  await page.keyboard.press('Escape');
+  assert.equal(await reviewVisible(),false);
+  // Clearing the selection returns the screen to its plain smiley face.
+  for(let attempt=0;attempt<3;attempt++){
+   if(await page.locator('sourcepin-inspector .screen-count').textContent()==='')break;
+   await page.keyboard.press('Escape');await page.waitForTimeout(60);
+  }
+  assert.equal(await page.locator('sourcepin-inspector .screen-count').textContent(),'');
+  assert.equal(await notice.isVisible(),false,'an empty console shows only the face');
+  assert.equal(await page.locator('sourcepin-inspector .screen').evaluate(el=>el.dataset.content),'false');
+ }finally{await browser.close();}
+});
+
+test('personal information still forces the full review on every export',async()=>{
+ const browser=await chromium.launch({headless:true});
+ try{
+  const page=await browser.newPage();await page.setContent('<p data-testid="private">Email a@example.com</p><p data-testid="plain">Plain target</p>');
+  await page.addScriptTag({content:await controllerFixture('pro')});await page.evaluate(()=>window.startTest());
+  const reviewVisible=()=>page.locator('[data-panel="review"]').isVisible();
+  await page.getByTestId('private').click();await settled(page);
+  await page.locator('.copy').click();
+  assert.equal(await reviewVisible(),true);
+  assert.match(await page.locator('.review-counts').textContent(),/邮箱 1/);
+  await confirmExport(page);await page.waitForFunction(()=>!!window.copied);
+  // Clean target afterwards: the dialog is allowed to stay away.
+  await page.keyboard.press('Escape');
+  for(let attempt=0;attempt<3;attempt++){
+   if(await page.locator('sourcepin-inspector .screen-count').textContent()==='')break;
+   await page.keyboard.press('Escape');await page.waitForTimeout(60);
+  }
+  await page.getByTestId('plain').click();await settled(page);
+  await page.evaluate(()=>{window.copied=undefined;});
+  await page.locator('.copy').click();await page.waitForTimeout(400);
+  assert.equal(await reviewVisible(),false);
+  assert.match(await page.evaluate(()=>window.copied),/plain/);
+  // A snapshot that carries personal information reopens the full review.
+  for(let attempt=0;attempt<3;attempt++){
+   if(await page.locator('sourcepin-inspector .screen-count').textContent()==='')break;
+   await page.keyboard.press('Escape');await page.waitForTimeout(60);
+  }
+  assert.equal(await page.locator('sourcepin-inspector .screen-count').textContent(),'');
+  await page.getByTestId('private').click();await settled(page);
+  await page.evaluate(()=>{window.copied=undefined;});
+  await page.locator('.copy').click();
+  assert.equal(await reviewVisible(),true,'a personal-information hit must force the full review');
+  assert.match(await page.locator('.review-counts').textContent(),/邮箱 1/);
+  await page.locator('[data-action="export-cancel"].panel-action').click();
+  assert.equal(await page.evaluate(()=>window.copied),undefined,'cancelling still prevents the export');
+ }finally{await browser.close();}
+});
+
+test('screenshots follow the same one-review rule as copy in Lite and Pro',async()=>{
+ const browser=await chromium.launch({headless:true});
+ try{
+  for(const mode of ['lite','pro']){
+   const page=await browser.newPage();await page.setContent('<p data-testid="shot">Screenshot target</p>');
+   await page.addScriptTag({content:await controllerFixture(mode,mode==='pro'?"async()=>({framework:'Fixture',components:[],props:{}})":'undefined',true)});
+   await page.evaluate(()=>window.startTest());
+   const reviewVisible=()=>page.locator('[data-panel="review"]').isVisible();
+   // The triangle toggles the capture panel, so open it only when it is closed.
+   const openCapture=async()=>{
+    if(!await page.locator('[data-panel="capture"]').isVisible())await page.locator('[data-action="capture-panel"]').click();
+    await page.locator('[data-panel="capture"]').waitFor({state:'visible'});
+   };
+   await page.getByTestId('shot').click();await settled(page);
+   await openCapture();
+   // First screenshot of this activation: the full review runs.
+   await page.locator('[data-action="viewport-shot"]').click();
+   await page.waitForTimeout(300);
+   assert.equal(await reviewVisible(),true,`${mode}: first screenshot asks for review`);
+   assert.match(await page.locator('.review-privacy').textContent(),/截图.*OCR/,'the pixel-content warning stays in that review');
+   await confirmExport(page);
+   assert.equal(await reviewVisible(),false);
+   // Every later screenshot in the same activation proceeds without a dialog.
+   await openCapture();
+   await page.locator('[data-action="viewport-shot"]').click();
+   await page.waitForTimeout(500);
+   assert.equal(await reviewVisible(),false,`${mode}: later screenshots must not re-ask`);
+   await openCapture();
+   await page.locator('[data-action="component-shot"]').click();
+   await page.waitForTimeout(400);
+   assert.equal(await reviewVisible(),false,`${mode}: component shots follow the same rule`);
+   // The standing notice carries the statement once a review was accepted.
+   assert.match(await page.locator('sourcepin-inspector .screen-notice').textContent(),/已确认/);
+   await page.close();
+  }
  }finally{await browser.close();}
 });

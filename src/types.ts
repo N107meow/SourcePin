@@ -42,10 +42,23 @@ export interface Platform {
 }
 /** Read-only adapter capabilities the UI must reflect as unavailable controls. */
 export interface UICapabilities { screenshot: boolean }
+/** The one full review of this activation, kept so the standing notice can
+ * reopen the same numbers instead of inventing new ones. */
+export interface ReviewMemory {
+  action: string; counts: import('./core/review').ExportReview['counts'];
+  screenshot: boolean; downloadsImages: boolean;
+  /** ISO time of that review, so a reopened panel cannot pass as current. */
+  at: string;
+}
 export interface UIState {
   mode: Mode; status: string; count: number; summary: string; copied: boolean;
   busy: boolean; recording: boolean; matched: boolean; markdown: string; settings: Settings;
   capabilities: UICapabilities;
+  /** True once a full export review was accepted in this activation; later
+   * exports show a standing notice instead of reopening the dialog. */
+  confirmed: boolean;
+  /** Set only while the notice can reopen a real, already-recorded review. */
+  notice: ReviewMemory | null;
 }
 export interface UIActions {
   copy(): void; download(): void; close(): void; repick(): void;
@@ -53,7 +66,9 @@ export interface UIActions {
   wholePage(): void; addViewport(): void;
 }
 export interface InspectorUI {
-  review(details: import('./core/review').ExportReview): Promise<boolean>;
+  /** Opens the review. With `panel:'memory'` it renders the stored statement
+   * read-only (no accept/cancel) and resolves immediately. */
+  review(details: import('./core/review').ExportReview, memory?: ReviewMemory | null, panel?: 'live'|'memory'): Promise<boolean>;
   host: HTMLElement; update(state: UIState): void; toast(message: string): void;
   contains(event: Event): boolean; closePanel(): boolean; destroy(): void;
   highlight(rect: Rect | null, label?: string, selected?: boolean, color?: string, hint?: boolean): void;

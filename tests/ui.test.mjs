@@ -62,7 +62,7 @@ test('isolates controls in shadow DOM and routes primary actions', async () => {
 
 test('mode, settings, recording, preview and capture controls use exact callbacks', async () => {
   const page = await fixture();
-  await page.getByRole('button', { name: '选择 Lite 或 Pro 模式' }).click();
+  await page.getByRole('button', { name: /^选择 Lite 或 Pro 模式/ }).click();
   const modeSwitch = page.getByRole('switch', { name: '切换 Lite 或 Pro 模式' });
   await expectVisible(modeSwitch);
   await modeSwitch.click();
@@ -110,7 +110,7 @@ test('screen content, match state and localized labels follow the visible state'
     settings: { mode: 'lite', language: 'en', maxNodes: 300, maxDepth: 6, onboardingDone: true, includeHidden: false },
     capabilities: { screenshot: true } }));
   assert.equal((await screen.textContent()).trim(), '3');
-  assert.equal(await page.getByRole('button', { name: 'Open settings' }).isVisible(), true);
+  assert.equal(await page.getByRole('button', { name: /^Choose Lite or Pro mode/ }).isVisible(), true);
 });
 
 test('onboarding shows actual defaults and closes as soon as the user starts', async () => {
@@ -185,7 +185,7 @@ test('update, overlays, containment, viewport constraints and lifecycle are stat
 
 test('reference switch stays below the robot at exact track, thumb and label sizes',async()=>{
   const page=await fixture();
-  await page.locator('.gear').click();
+  await page.locator('.settings-button').click();
   const result=await page.locator('.mode-switch').evaluate(el=>{
     const s=getComputedStyle(el),thumb=getComputedStyle(el,'::after');const root=el.getRootNode();
     const label=root.querySelector('.mode-label');const art=root.querySelector('.asset');
@@ -233,14 +233,13 @@ test('Lite and Pro use the same single-pass shadow opacity',async()=>{
   await page.close();
 });
 
-test('gear alone toggles the mode picker and preview matches the console above it',async()=>{
+test('the mode picker button toggles it and the preview matches the console above it',async()=>{
   const page=await fixture();
   assert.equal(await page.locator('.mode-picker').isVisible(),false);
   await page.locator('.settings-button').click();
+  assert.equal(await page.locator('.mode-picker').isVisible(),true,'the green-glyph button opens the mode picker');
+  await page.locator('.settings-button').click();
   assert.equal(await page.locator('.mode-picker').isVisible(),false);
-  await page.locator('.gear').click();assert.equal(await page.locator('.mode-picker').isVisible(),true);
-  await page.locator('.settings-button').click();assert.equal(await page.locator('.mode-picker').isVisible(),true);
-  await page.locator('.gear').click();assert.equal(await page.locator('.mode-picker').isVisible(),false);
   await page.locator('.screen').click();
   const panel=page.locator('[data-panel="preview"]');await expectVisible(panel);
   const bounds=await panel.boundingBox(),asset=await page.locator('.asset-lite').boundingBox();
@@ -283,5 +282,30 @@ test('current mode is readable without opening the mode picker', async () => {
     capabilities: { screenshot: true } }));
   assert.equal(await page.locator('.mode-picker').isVisible(), false);
   assert.equal((await badge.textContent()).trim(), 'PRO');
+  await page.close();
+});
+
+test('open panels follow the console theme in both modes', async () => {
+  const page = await fixture();
+  const colors=()=>page.evaluate(()=>{const r=document.querySelector('sourcepin-inspector').shadowRoot;
+    const action=r.querySelector('[data-panel="settings"] [data-action="repick"]');
+    const close=r.querySelector('[data-panel="settings"] .panel-close');
+    return {action:getComputedStyle(action).backgroundColor,close:getComputedStyle(close).backgroundColor};});
+  // The fixture records actions instead of mutating state, so each mode is
+  // installed the way the controller does before the colors are compared.
+  const setMode=(mode)=>page.evaluate(m=>ui.update({mode:m,status:'已选择',count:1,summary:'p x',copied:false,
+    busy:false,recording:false,matched:true,markdown:'# Capture',
+    settings:{mode:m,language:'zh',maxNodes:300,maxDepth:6,onboardingDone:true,includeHidden:false},
+    capabilities:{screenshot:true},confirmed:false,notice:null}),mode);
+  await page.locator('.gear').click();await page.waitForTimeout(80);
+  const lite=await colors();
+  assert.equal(lite.action,'rgb(99, 201, 183)','Lite panels keep the console teal');
+  assert.equal(lite.close,'rgb(255, 207, 39)','the close button keeps the Lite accent');
+  await setMode('pro');
+  assert.equal(await page.locator('sourcepin-inspector').evaluate(h=>h.dataset.mode),'pro');
+  const pro=await colors();
+  assert.equal(pro.action,'rgb(255, 92, 125)','Pro panels use the console pink');
+  assert.equal(pro.close,'rgb(255, 0, 63)','the close button matches the Pro accent');
+  assert.notEqual(lite.action,pro.action);
   await page.close();
 });

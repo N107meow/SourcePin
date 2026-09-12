@@ -42,12 +42,12 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
         <img class="asset asset-lite" width="188" height="264" alt="SourcePin 机器人" draggable="false">
         <img class="asset asset-pro" width="188" height="264" alt="" draggable="false">
         <button class="drag-handle" aria-label="拖动 SourcePin"></button>
-        <button class="screen" type="button" data-action="preview-panel" aria-label="预览捕获内容" title="单击或按 Enter 预览"><span class="screen-count"></span><span class="screen-status"></span><span class="screen-match"></span><span class="screen-summary"></span></button>
+        <button class="screen" type="button" data-action="preview-panel" aria-label="预览捕获内容" title="单击或按 Enter 预览"><span class="screen-count"></span><span class="screen-status"></span><span class="screen-match"></span><span class="screen-summary"></span><span class="screen-notice"></span></button>
         <button class="hotspot copy" data-action="copy" aria-label="复制 Markdown"></button>
-        <button class="hotspot settings-button" data-action="settings-panel" aria-label="打开设置"></button>
+        <button class="hotspot settings-button" data-action="mode-picker" aria-label="选择 Lite 或 Pro 模式" aria-expanded="false" aria-controls="sourcepin-mode-picker"></button>
         <button class="hotspot capture" data-action="capture-panel" aria-label="打开画面采集"></button>
         <button class="hotspot download" data-action="download" aria-label="下载 Markdown"></button>
-        <button class="hotspot gear" data-action="mode-picker" aria-label="选择 Lite 或 Pro 模式" aria-expanded="false" aria-controls="sourcepin-mode-picker"></button>
+        <button class="hotspot gear" data-action="settings-panel" aria-label="打开设置"></button>
         <button class="inspector-close" data-action="close" aria-label="关闭 SourcePin">×</button>
         <div class="mode-picker" id="sourcepin-mode-picker" hidden><button class="mode-switch" data-action="mode" role="switch" aria-label="切换 Lite 或 Pro 模式"></button><span class="mode-label"></span></div>
         <span class="mode-badge"></span>
@@ -104,10 +104,16 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     fetch(assetUrl).then(response => response.text()).then(installArtwork).catch(() => {});
   }
 
+  // The actions are swapped relative to where the icons are drawn: the lower-left
+  // m glyph downloads, the gear opens settings and the green icon opens the mode
+  // picker, so each entry maps an action to the glyph users actually see.
   const iconIds: Record<string,string> = {copy:'Vector_9', 'settings-panel':'Vector_12', 'capture-panel':'Vector_13', download:'Vector_8', 'mode-picker':'Group'};
-  const animateButton = (button: HTMLElement, pressed: boolean) => {
+  const chaseIcon = (button: HTMLElement): Element[] => {
     const id = iconIds[button.dataset.action || ''];
-    const targets: Element[] = id ? [...root.querySelectorAll(`.asset [id="${id}"]`)] : [button];
+    return id ? [...root.querySelectorAll(`.asset [id="${id}"]`)] : [button];
+  };
+  const animateButton = (button: HTMLElement, pressed: boolean) => {
+    const targets: Element[] = chaseIcon(button);
     for (const target of targets) {
       for (const animation of target.getAnimations()) animation.cancel();
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) continue;
@@ -155,6 +161,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     });
   };
   let finishReview: ((accepted:boolean)=>void) | undefined;
+  let panelMode: 'live'|'memory' = 'live';
   const settleReview=(accepted=false)=>{const resolve=finishReview;finishReview=undefined;q<HTMLElement>(root,'[data-panel="review"]').hidden=true;resolve?.(accepted);};
   const closePanel = (): boolean => {
     const open = panels().find(panel => !panel.hidden);
@@ -164,6 +171,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     return true;
   };
   const openPanel = (name: string) => {
+    if(name!=='review')panelMode='live';
     if(finishReview)settleReview();
     const target = q<HTMLElement>(root, `[data-panel="${name}"]`);
     const wasOpen = !target.hidden;
@@ -184,6 +192,12 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   };
 
   root.addEventListener('click', event => {
+    const noticeHit=(event.target as Element).closest?.('.screen-notice');
+    if (noticeHit && state.notice) {
+      // Read-only replay of the one review this activation already recorded.
+      void api.review({action:state.notice.action,counts:state.notice.counts,screenshot:state.notice.screenshot,downloadsImages:state.notice.downloadsImages},state.notice,'memory');
+      return;
+    }
     const button = (event.target as Element).closest<HTMLElement>('[data-action]');
     if (!button) return;
     const action = button.dataset.action;
@@ -216,6 +230,7 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
       actions.settings(settings);
     }
     else if (action === 'panel-close') closePanel();
+
   });
   root.addEventListener('change', changedSettings);
   q(root, '.screen').addEventListener('dblclick', event => { event.preventDefault(); openPanel('preview'); });
@@ -254,6 +269,8 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     const en = next.settings.language === 'en';
     const noShot = en ? 'Screenshots need the Chrome extension; bookmarks and this page can copy or download Markdown.' : '截图需要 Chrome 扩展版；书签版与本页可复制或下载 Markdown。';
     robot.dataset.mode = next.mode;
+    // The whole UI follows the mode, so open panels switch theme with it.
+    host.dataset.mode = next.mode;
     robot.dataset.copied = String(next.copied);
     robot.classList.toggle('busy', next.busy);
     const showText = next.count > 0 && next.summary.length > 0 && next.summary.length <= 80;
@@ -269,18 +286,20 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     } : { includeHidden: '包含隐藏内容', settings: '设置', language: '输出语言', maxNodes: '最大节点数', maxDepth: '最大深度', capture: '画面采集', preview: '预览' };
     root.querySelectorAll<HTMLElement>('[data-text]').forEach(node => { node.textContent = labels[node.dataset.text || ''] || ''; });
     const aria: Record<string, string> = en ? {
-      '.screen': 'Preview capture', '.settings-button': 'Open settings', '.capture': 'Open capture', '.drag-handle': 'Drag SourcePin', '.mode-switch': 'Switch Lite or Pro mode',
+      '.screen': 'Preview capture', '.settings-button': 'Choose Lite or Pro mode', '.capture': 'Open capture', '.drag-handle': 'Drag SourcePin', '.mode-switch': 'Switch Lite or Pro mode',
       '[data-action="component-shot"]': 'Capture component', '[data-action="viewport-shot"]': 'Capture viewport', '[data-action="whole-page"]': 'Capture whole-page DOM',
     } : {
-      '.screen': '预览捕获内容', '.settings-button': '打开设置', '.capture': '打开画面采集', '.drag-handle': '拖动 SourcePin', '.mode-switch': '切换 Lite 或 Pro 模式',
+      '.screen': '预览捕获内容', '.settings-button': '选择 Lite 或 Pro 模式', '.capture': '打开画面采集', '.drag-handle': '拖动 SourcePin', '.mode-switch': '切换 Lite 或 Pro 模式',
     };
     Object.entries(aria).forEach(([selector, label]) => q<HTMLElement>(root, selector).setAttribute('aria-label', label));
     // The mode is stated, not only coloured: the badge is always visible and
-    // the gear repeats the current mode for assistive technology.
+    // the mode picker's own button repeats the current mode for assistive
+    // technology. The gear opens settings, so it carries no mode wording.
     const modeName = next.mode === 'lite' ? 'Lite' : 'Pro';
     q<HTMLElement>(root, '.mode-badge').textContent = next.mode.toUpperCase();
     q<HTMLElement>(root, '.mode-badge').setAttribute('aria-label', en ? `Current mode: ${modeName}` : `当前模式：${modeName}`);
-    q<HTMLElement>(root, '.gear').setAttribute('aria-label', en ? `Choose Lite or Pro mode · currently ${modeName}` : `选择 Lite 或 Pro 模式 · 当前 ${modeName}`);
+    q<HTMLElement>(root, '.settings-button').setAttribute('aria-label', en ? `Choose Lite or Pro mode · currently ${modeName}` : `选择 Lite 或 Pro 模式 · 当前 ${modeName}`);
+    q<HTMLElement>(root, '.settings-button').setAttribute('aria-expanded', String(!q<HTMLElement>(root, '.mode-picker').hidden));
     // Greying out is a capability statement, not a hiding place: the reason is
     // visible in the panel and repeated in each disabled button's title.
     const shotReason = q<HTMLElement>(root, '[data-panel="capture"] .panel-note');
@@ -307,6 +326,17 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
     q<HTMLInputElement>(root, '[name="includeHidden"]').checked = !!next.settings.includeHidden;
     q<HTMLElement>(root, '[data-action="record"]').textContent = next.recording ? (en ? 'Stop recording' : '停止录制') : next.mode === 'pro' ? (en ? 'Start recording' : '开始录制') : (en ? 'Switch to Pro and start recording' : '切换到 Pro 并开始录制');
     q<HTMLElement>(root, '[data-action="record"]').classList.toggle('danger', next.recording);
+    // Once the one review of this activation is accepted, its statement stays
+    // readable on the screen instead of reopening the dialog on every export.
+    // It shares the screen's text state: with nothing picked the screen keeps
+    // only the face, so the console stays uncluttered while idle.
+    const notice=q<HTMLElement>(root,'.screen-notice');
+    const showNotice=next.confirmed && showText;
+    notice.textContent=showNotice?(en?'Confirmed · terms':'已确认 · 声明'):'';
+    notice.hidden=!showNotice;
+    q<HTMLElement>(root, '.screen').title=next.confirmed
+      ? (en?'This session was reviewed; pasting sends content to a third party. Open the preview for the full statement.':'本会话已确认导出；粘贴给 LLM 即把内容交给第三方处理。打开预览可查看完整声明。')
+      : (en?'Click or press Enter to preview':'单击或按 Enter 预览');
     q<HTMLElement>(root, '.preview').textContent = next.markdown || '尚未捕获内容。';
     host.style.display = hidden ? 'none' : '';
     requestAnimationFrame(constrain);
@@ -316,18 +346,28 @@ export function createUI(actions: UIActions, initial: UIState, assetUrl: string)
   update(initial);
   const api: InspectorUI = {
     host,
-    review(details) {
+    review(details,memory,panel) {
+      panelMode=panel==='memory'?'memory':'live';
+      const at=memory?.at?new Date(memory.at):null;
+      const when=at&&!Number.isNaN(at.getTime())?`${at.getHours().toString().padStart(2,'0')}:${at.getMinutes().toString().padStart(2,'0')}`:'';
       openPanel('review');
       const en=state.settings.language==='en';
-      q<HTMLElement>(root,'.review-title').textContent=en?'Review before export':details.action+' · 导出前确认';
+      const past=panelMode==='memory';
+      q<HTMLElement>(root,'.review-title').textContent=past
+        ? (en?`Confirmed at ${when} · service statement`:`已于 ${when} 确认 · 服务声明`)
+        : (en?'Review before export':details.action+' · 导出前确认');
       q<HTMLElement>(root,'.review-counts').textContent=`${en?'Snapshot DOM matches (unique)':'已有 DOM 快照疑似信息（去重）'}: ${en?'Email':'邮箱'} ${details.counts.email} · ${en?'Phone':'手机号'} ${details.counts.phone} · ${en?'ID':'身份证'} ${details.counts.identity} · ${en?'Address':'地址'} ${details.counts.address}`;
       q<HTMLElement>(root,'.review-privacy').textContent=en?'Local heuristics may miss or misclassify data. DOM may contain personal information; screenshot pixels may contain text. Screenshots are not scanned by OCR.':'本地模式检测可能误报或漏报。DOM 可能含个人信息；截图像素可能含文字，截图未做 OCR 检测。请检查内容后决定。';
       q<HTMLElement>(root,'.review-flow').textContent=en?'Pasting into an LLM sends this content to that third party for processing. SourcePin does not upload captures.':'粘贴给 LLM 即把内容交给第三方处理。SourcePin 本身不会上传采集内容。';
-      q<HTMLElement>(root,'.review-images').textContent=details.downloadsImages?(en?'Continue reads referenced images without credentials and embeds them in the ZIP; inaccessible images become placeholders.':'继续后将无凭据读取当前快照引用的图片并内联进 ZIP；无法读取的图片会用占位图替代。'):'';
+      q<HTMLElement>(root,'.review-images').textContent=details.downloadsImages?(en?'The ZIP marks each image position with a same-size placeholder and records its sanitized URL; no image is downloaded.':'ZIP 会在每个图片位置放一个同尺寸占位并记录其净化后的 URL；不会下载任何图片。'):'';
       q<HTMLElement>(root,'.review-rights').textContent=RIGHTS_NOTICE;
       q<HTMLElement>(root,'[data-action="export-confirm"]').textContent=en?'Continue export':'继续导出';
       q<HTMLElement>(root,'[data-action="export-cancel"].panel-action').textContent=en?'Cancel':'取消';
-      placePanels();q<HTMLElement>(root,'[data-action="export-confirm"]').focus();
+      for(const name of ['[data-action="export-confirm"]','[data-action="export-cancel"].panel-action'])q<HTMLElement>(root,name).hidden=past;
+      q<HTMLElement>(root,'[data-action="export-cancel"].panel-close').setAttribute('aria-label',en?'Close':'关闭');
+      placePanels();
+      if(past)return Promise.resolve(true);
+      q<HTMLElement>(root,'[data-action="export-confirm"]').focus();
       return new Promise(resolve=>{finishReview=resolve;});
     },
     update,

@@ -12,7 +12,7 @@ test('bundled bookmarklet switches the body red under connect-src none and resto
   await page.goto('https://theme.test/');await page.evaluate(code=>(0,eval)(code),built.outputFiles[0].text);
   await page.locator('[data-sourcepin-root]').waitFor();
   assert.equal(await page.locator('[data-panel="onboarding"]').isVisible(),false);
-  await page.locator('.gear').click();await page.locator('.mode-switch').click();
+  await page.locator('.settings-button').click();await page.locator('.mode-switch').click();
   assert.equal(await page.locator('.robot').getAttribute('data-mode'),'pro');
   const bodyFill=()=>page.locator('.asset-pro').evaluate(asset=>{const body=asset.querySelector('[id="Vector"]');return body?getComputedStyle(body).fill:null;});
   assert.equal(await bodyFill(),'rgb(255, 0, 63)','Pro body must be red even when the page blocks fetch');

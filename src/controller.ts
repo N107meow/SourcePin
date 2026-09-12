@@ -1,4 +1,4 @@
-import type { Capture, CaptureKind, Platform, Rect, Recorder, Recording, Settings, UIState } from './types';
+import type { Capture, CaptureKind, Platform, Rect, Recorder, Recording, ReviewMemory, Settings, UIState } from './types';
 import { createUI } from './ui/inspector';
 import { captureElement } from './core/capture';
 import { validateLocators } from './core/locators';
@@ -43,12 +43,12 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
   let busy=false,copied=false,alive=true,picking=true,hover: Element | null=null;
   let status='指向元素，点击选中';let savedFilename: string | undefined;
   let operation: AbortController | undefined;let revision=0;let raf=0;
-  let escapeArmed=false;let exporting:AbortController | undefined;let shiftHintShown=false;
+  let escapeArmed=false;let exporting:AbortController | undefined;let shiftHintShown=false;let reviewShown=false;let lastReview: ReviewMemory | null=null;
   const documents=new Map<Document,()=>void>();
   const recordings=()=>recorder?.snapshot() || recorded;
   const markdown=(summary=false)=>renderMarkdown([...captures,...viewports],{summary,language:settings.language,recording:recordings(),savedFilename});
   const valid=()=>captures.length>0 && selected.every((el,i)=>el.isConnected && validateLocators(el,captures[i]?.locators || []).some(l=>l.verified));
-  const state=(): UIState=>({mode:settings.mode,status,count:selected.length,summary:captures.length ? `${describe(selected[0])}\n${captures[0].target.text.slice(0,70)}`:'',copied,busy,recording:!!recorder,matched:valid(),markdown:captures.length?preview():'',settings,capabilities:{screenshot:!!platform.screenshot}});
+  const state=(): UIState=>({mode:settings.mode,status,count:selected.length,summary:captures.length ? `${describe(selected[0])}\n${captures[0].target.text.slice(0,70)}`:'',copied,busy,recording:!!recorder,matched:valid(),markdown:captures.length?preview():'',settings,capabilities:{screenshot:!!platform.screenshot},confirmed:reviewShown,notice:lastReview});
   function applySettings(next: Settings){
     const previous=settings;settings=normalizeSettings(next);void platform.saveSettings(settings).catch(()=>ui.toast('设置保存失败，本次会话仍然有效'));
     if(settings.mode!==previous.mode || settings.maxDepth!==previous.maxDepth || settings.maxNodes!==previous.maxNodes || settings.includeHidden!==previous.includeHidden){
@@ -123,7 +123,17 @@ export async function startInspector(platform: Platform, assetUrl: string, onDis
     const version=revision;
     const payload=JSON.stringify({captures:[...captures,...viewports],recording:recordings()});
     try{
-      const accepted=await ui.review({action,counts:scanPersonalInfo(payload),screenshot,downloadsImages});
+      const counts=scanPersonalInfo(payload);
+      // One full review per activation, for copy, download and screenshot
+      // alike. Later exports skip the dialog only when the snapshot is clean;
+      // any personal-information hit still forces the complete review, and the
+      // privacy, third-party and rights notices stay readable on the console
+      // screen and inside the preview instead.
+      const findings=counts.email+counts.phone+counts.identity+counts.address;
+      const needsReview=!reviewShown || findings>0;
+      if(needsReview)lastReview={action,counts,screenshot,downloadsImages,at:new Date().toISOString()};
+      const accepted=needsReview ? await ui.review({action,counts,screenshot,downloadsImages}) : true;
+      if(needsReview)reviewShown=true;update();
       if(!accepted || job.signal.aborted || !alive)return;
       if(version!==revision){ui.toast('确认期间页面或选择已变化，请重新采集后导出');return;}
       await run(job.signal);

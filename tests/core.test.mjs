@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test, { after, before } from 'node:test';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
+import { createRequire } from 'node:module';
+const TOOL_VERSION=createRequire(import.meta.url)('../package.json').version;
 
 let browser;
 let source;
@@ -361,7 +363,7 @@ test('attribute audit returns removed names without retaining sensitive values a
     assert.deepEqual(result.audit.removed.sort(),['data-token','onclick','value']);
     assert.doesNotMatch(JSON.stringify(result),/AUDIT_SECRET|PRIVATE_VALUE/);
     assert.match(result.capture.degradations.join('\n'),/data-token.*1/);
-    assert.equal(result.capture.meta.toolVersion,'0.1.0');assert.match(result.capture.meta.rights,/不授予任何使用权/);
+    assert.equal(result.capture.meta.toolVersion,TOOL_VERSION);assert.match(result.capture.meta.rights,/不授予任何使用权/);
   }finally{await page.close();}
 });
 

@@ -29,6 +29,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .robot[data-mode="pro"] .screen-match { color: #a9002b; }
 .screen-summary { max-width: 112px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; opacity: .72; }
 .screen-count { position: absolute; right: 7px; top: 6px; min-width: 19px; padding: 2px 5px; color: white; background: #1c1008; border-radius: 10px; font-size: 9px; }
+.screen-notice { flex: none; margin-top: 3px; font-size: 9px; line-height: 12px; font-weight: 800; text-decoration: underline; opacity: .78; cursor: pointer; }
+.screen-notice[hidden] { display: none; }
 .screen-count:empty { display: none; }
 .mode-picker { position: absolute; left: 0; right: 0; top: 272px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
 .mode-picker[hidden] { display: none; }
@@ -57,6 +59,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .panel-action { min-height: 38px; padding: 7px 11px; border: 3px solid #1c1008; border-radius: 12px; background: #63c9b7; text-align: left; }
 .panel-action.danger { background: #ff3d67; }
 .panel-action:disabled { opacity: .55; cursor: not-allowed; }
+/* Panels follow the console theme, so a Pro session never shows Lite colours. */
+:host([data-mode="pro"]) .panel-close { background: #ff003f; }
+:host([data-mode="pro"]) .panel-action { background: #ff5c7d; }
+:host([data-mode="pro"]) .panel-action.danger { background: #ff003f; }
+:host([data-mode="pro"]) .field input[type="checkbox"] { accent-color: #ff003f; }
+:host([data-mode="pro"]) .panel-action:focus-visible { outline-color: #ffd1d9; }
 .preview { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .toast { position: absolute; right: 12px; bottom: 52px; max-width: 200px; padding: 8px 12px; border: 3px solid #1c1008; border-radius: 12px; background: #fff; box-shadow: 4px 4px 0 rgb(28 16 8 / .2); opacity: 0; transform: translateY(8px); transition: .16s ease; pointer-events: none; }
 .toast[data-show="true"] { opacity: 1; transform: none; }

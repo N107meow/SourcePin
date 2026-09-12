@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const TOOL_VERSION=createRequire(import.meta.url)('../package.json').version;
 import { after, before, test } from 'node:test';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
@@ -254,7 +256,7 @@ test('capabilities follow each capture instead of the mode and recording belongs
 test('summary names omitted sections and provenance survives both export paths',()=>{
   const output=markdown.renderMarkdown([capture({tokens:{huge:['x'.repeat(40000)]}})],{summary:true});
   assert.match(output,/摘要省略的章节：Design Tokens/);assert.match(output,/Cleaned HTML、Scoped CSS、Reference Impl/);
-  assert.match(output,/"toolVersion": "0.1.0"/);assert.match(output,/不授予任何使用权/);
+  assert.match(output,new RegExp(`"toolVersion": "${TOOL_VERSION}"`));assert.match(output,/不授予任何使用权/);
 });
 
 test('full Markdown hard ceiling refuses oversized exports and mixed package links retain capture order',()=>{

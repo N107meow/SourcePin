@@ -45,7 +45,7 @@ try{
   const root=page.locator('[data-sourcepin-root]');
   const onboarding=root.locator('[data-action="onboarding-done"]');
   assert.equal(await onboarding.isVisible(),true);
-  await root.locator('.gear').click();await root.locator('.mode-switch').click();await root.locator('.mode-switch').click();await root.locator('.gear').click();
+  await root.locator('.settings-button').click();await root.locator('.mode-switch').click();await root.locator('.mode-switch').click();await root.locator('.settings-button').click();
   assert.equal(await worker.evaluate(async()=>(await chrome.storage.local.get('settings')).settings.onboardingDone),true);
   assert.equal(await escapeUntilClosed(page),true);
   await page.reload();await browserCdp.send('Extensions.triggerAction',{id,targetId:targetInfo.targetId});await root.waitFor();
@@ -61,11 +61,11 @@ try{
   results.push('Selection does not click through; Cmd+C copies real clipboard');
   await page.screenshot({path:'artifacts/02-selected-copy.png'});
   // Switch mode using visible robot controls.
-  await root.locator('.gear').click();await root.locator('.mode-switch').click();
+  await root.locator('.settings-button').click();await root.locator('.mode-switch').click();
   await page.waitForFunction(()=>document.querySelector('[data-sourcepin-root]').shadowRoot.querySelector('.robot').dataset.mode==='pro');
   await page.getByTestId('workspace-card').click({position:{x:20,y:80}});
   await page.waitForFunction(()=>{const r=document.querySelector('[data-sourcepin-root]')?.shadowRoot;return r?.querySelector('.screen-count').textContent==='1' && !r.querySelector('.robot').classList.contains('busy');});
-  await root.locator('[data-action="settings-panel"]').click();
+  await root.locator('.gear').click();
   await root.locator('[data-action="record"]').click();
   await page.getByTestId('project-toggle').click();assert.equal(await page.getByTestId('project-toggle').getAttribute('aria-expanded'),'true');
   await page.waitForTimeout(450);
