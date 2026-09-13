@@ -2,7 +2,7 @@
 
 选中网页上的任意组件，得到可以交给 AI 的定位、结构与样式上下文。全部在本地运行，不上传内容，不需要账号。
 
-![SourcePin](https://n107meow.github.io/SourcePin/robot.svg)
+![SourcePin 游戏机](./src/assets/robot.svg)
 
 ## 立即使用（推荐）
 
@@ -40,8 +40,21 @@
 
 ## 反馈
 
-使用问题或建议请开 [Issue](https://github.com/N107meow/SourcePin/issues)。源码不在默认分支：完整代码、测试与构建方式见 [`source` 分支](https://github.com/N107meow/SourcePin/tree/source)（`npm ci && npm run check`，`npm run delivery` 生成安装包）。
+使用问题或建议请开 [Issue](https://github.com/N107meow/SourcePin/issues)。
+
+## 本地开发
+
+完整源码、测试与构建脚本都在 `main`。需要 Node.js 22 或更高版本：
+
+```bash
+npm ci
+npx playwright install chromium
+npm run check
+npm run delivery
+```
+
+`src/` 是工具源码，`site/` 是安装页，`tests/` 是测试，`docs/` 是详细说明。构建产物和本地测试文件不纳入源码仓库。
 
 ## 许可证
 
-[MIT](https://github.com/N107meow/SourcePin/blob/source/LICENSE)。导出内容（网页文本、图片、Logo）的权利仍归原站/原作者，本许可证不授予这些内容的使用权。
+[MIT](./LICENSE)。导出内容（网页文本、图片、Logo）的权利仍归原站/原作者，本许可证不授予这些内容的使用权。

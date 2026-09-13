@@ -1,0 +1,8 @@
+node_modules/
+dist/
+artifacts/
+.DS_Store
+.superpowers/
+*.log
+/AGENTS.md
+/CHANGELOG.md

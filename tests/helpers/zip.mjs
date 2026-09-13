@@ -1,0 +1,1 @@
+export function unzip(bytes){const buffer=Buffer.from(bytes),files={};let p=0;while(buffer.readUInt32LE(p)===0x04034b50){const size=buffer.readUInt32LE(p+18),nameSize=buffer.readUInt16LE(p+26),extra=buffer.readUInt16LE(p+28);const name=buffer.subarray(p+30,p+30+nameSize).toString();p+=30+nameSize+extra;files[name]=buffer.subarray(p,p+size);p+=size;}return files;}
