@@ -2,7 +2,7 @@
 
 选中网页上的任意组件，得到可以交给 AI 的定位、结构与样式上下文。全部在本地运行，不上传内容，不需要账号。
 
-![SourcePin 游戏机](./src/assets/robot.svg)
+[![SourcePin 项目介绍与游戏机：拖入书签栏，在网页上选择组件，按 ⌘ / Ctrl + C 复制上下文给 AI](./docs/images/sourcepin-overview.png)](https://n107meow.github.io/SourcePin/)
 
 ## 立即使用（推荐）
 
