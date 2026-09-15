@@ -23,10 +23,12 @@
 
 **Chrome 扩展（可选增强）**：本仓库根目录的 [`extension/`](./extension) 就是可直接加载的 MV3 扩展，已随源码提交，克隆后无需构建。
 
-1. 克隆仓库：`git clone https://github.com/N107meow/SourcePin.git`
+1. 取得仓库：`git clone https://github.com/N107meow/SourcePin.git`，或在仓库首页点 **Code → Download ZIP** 后解压。
 2. 打开 `chrome://extensions`（Edge 为 `edge://extensions`），开启右上角**开发者模式**。
 3. 点「加载已解压的扩展程序」，选择仓库根目录的 `extension/` 文件夹。
 4. 打开普通网页，点扩展图标或按 <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd>。
+
+只想拿扩展的话，也可以直接用 Release 里的 `sourcepin-0.1.6-delivery.zip`，解压后加载其中的 `extension/` 文件夹，内容与上面完全相同。
 
 扩展相对书签版多出三件事：组件截图、跨会话本地偏好保存、全局快捷键。书签版与扩展版共享同一套采集内核，导出内容一致；书签版不提供截图与偏好保存，严格 CSP 的页面可能阻止运行。
 
