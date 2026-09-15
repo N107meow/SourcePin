@@ -230,7 +230,7 @@
 | `docs/ACCEPTANCE.md` | 更新可手工复现的确认、审计、ZIP 与离线验收步骤。 |
 | `docs/PUBLISHING.md` | 修正“设置同步”为本地偏好保存。 |
 | `docs/EXPORT-PACKAGE-PLAN.md` | 记录本轮方案、预算与完成情况。 |
-| `docs/TEST-REPORT.md` | 当前验收映射、实测数字和交付证据。 |
+| `docs/dev/TEST-REPORT.md` | 当前验收映射、实测数字和交付证据。 |
 | `tests/core.test.mjs` | 审计、provenance、透明度、样式复用与索引工作量回归。 |
 | `tests/output.test.mjs` | 摘要省略、全文上限与多文件链接回归。 |
 | `tests/package.test.mjs` | 包结构、离线打开、资源失败/预算、无凭据请求与取消测试。 |
@@ -243,7 +243,7 @@
 | `tests/helpers/export.mjs` | 测试通过可见确认按钮继续导出。 |
 | `tests/helpers/zip.mjs` | 测试解读 stored ZIP 文件以检查真实产物。 |
 
-构建同时刷新 `dist/extension/manifest.json`、扩展 JS 与 ZIP、书签 JS/文本、`dist/site/`、安装站 ZIP 及 SHA256SUMS。dist 与 artifacts 是本地构建/证据目录，不纳入源码提交。
+构建同时刷新仓库根目录 `extension/`（`manifest.json`、扩展 JS、图标与安装说明）与 `dist/`（书签 JS/文本、`dist/site/`、两个 ZIP 及 SHA256SUMS）。`extension/` 是唯一纳入版本控制的构建产物目录；`dist/` 与 `artifacts/` 是本地构建/证据目录，不纳入源码提交。
 
 ## 降级与待决策
 

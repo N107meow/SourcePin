@@ -13,11 +13,10 @@ const number=(value,fallback)=>{const parsed=Number(value);return Number.isFinit
 // ---------------------------------------------------------------------------
 // Cross-process build lock
 //
-// Every build writes the same dist/, and `npm test` starts more than one at a
-// time because two test files each shell out to this script. Two processes
-// zipping one directory can capture each other's half-published files and leave
-// .tmp files behind, so builds take turns through an atomic mkdir lock instead
-// of interleaving.
+// Every build writes the same outputs, and `npm test` starts more than one at a
+// time because two test files each shell out to this script. Two processes zipping
+// one directory can capture each other's half-published files and leave .tmp files
+// behind, so builds take turns through an atomic mkdir lock instead of interleaving.
 //
 // Creating the lock and recording who owns it cannot be one atomic step, so the
 // two are separate states of the same lock:
@@ -212,16 +211,22 @@ process.on('exit',releaseSync);
 const hold=number(process.env.SOURCEPIN_BUILD_SLOW_MS,0);
 if(hold>0)await sleep(hold);
 // Leftovers from a build that was killed outright.
-for(const dir of ['dist','dist/site','dist/extension'])
+for(const dir of ['dist','dist/site','extension'])
   for(const name of await readDirSafe(dir))
     if(name.includes('.build-')&&name.endsWith('.tmp'))await rm(`${dir}/${name}`,{force:true});
-await mkdir('dist/extension',{recursive:true});
+// The unpacked extension is published to the repository root, not to dist/: a clone
+// must load in chrome://extensions without a build step, so these nine files are the
+// one built artifact that is tracked. dist/ keeps the site, the ZIPs and the checksums.
+await mkdir('extension',{recursive:true});
+// A checkout that predates the move still carries the old copy; the ZIP and the
+// delivery package are built from extension/, so the stale one would only mislead.
+await rm('dist/extension',{recursive:true,force:true});
 // One version lives in package.json: it names the artifacts and the manifest, so
 // exports never disagree with the build that produced them.
 const {version}=JSON.parse(await readFile('package.json','utf8'));
 const manifest=JSON.parse(await readFile('public/manifest.json','utf8'));
 manifest.version=version;
-await publish('dist/extension/manifest.json',JSON.stringify(manifest,null,2)+'\n');
+await publish('extension/manifest.json',JSON.stringify(manifest,null,2)+'\n');
 for(const name of await readDirSafe('dist'))if(/^sourcepin-\d/.test(name))await rm(`dist/${name}`,{force:true});
 const options={bundle:true,target:'chrome120',minify:true,legalComments:'none',loader:{'.svg':'dataurl'}};
 const [content,background,bookmark]=await Promise.all([
@@ -230,11 +235,11 @@ const [content,background,bookmark]=await Promise.all([
   build({...options,entryPoints:['src/bookmarklet.ts'],write:false,format:'iife'})
 ]);
 await Promise.all([
-  publish('dist/extension/content.js',content.outputFiles[0].text),
-  publish('dist/extension/background.js',background.outputFiles[0].text),
+  publish('extension/content.js',content.outputFiles[0].text),
+  publish('extension/background.js',background.outputFiles[0].text),
   publish('dist/sourcepin.js',bookmark.outputFiles[0].text)
 ]);
-await Promise.all(ICON_SIZES.map(size=>publishCopy(`public/icon-${size}.png`,`dist/extension/icon-${size}.png`)));
+await Promise.all(ICON_SIZES.map(size=>publishCopy(`public/icon-${size}.png`,`extension/icon-${size}.png`)));
 const script=await readFile('dist/sourcepin.js','utf8');
 const bookmarklet=`javascript:${encodeURIComponent(script)};void(0)`;
 await publish('dist/sourcepin.bookmarklet.txt',bookmarklet);
@@ -247,8 +252,8 @@ const iconHref=`data:image/svg+xml;charset=utf-8,${encodeURIComponent(ICON_SVG.r
 await publish('dist/site/index.html',(await readFile('site/index.html','utf8')).replaceAll('{{BOOKMARKLET}}',escaped).replaceAll('{{PREVIEW_BOOKMARKLET}}',escapedPreview).replaceAll('{{ICON}}',iconHref));
 await publishCopy('src/assets/robot.svg','dist/site/robot.svg');
 await publish('dist/site/.nojekyll','');
-await publish('dist/extension/INSTALL.txt',`SourcePin ${version}\n\n打开 chrome://extensions，开启开发者模式，点击“加载已解压的扩展程序”，选择本文件所在的 extension 文件夹。\n打开普通网页，点击 SourcePin 扩展图标或 Cmd/Ctrl+Shift+Y。\n点击只选中，Cmd/Ctrl+C 才复制。\n`);
-try{await publishZip(`sourcepin-${version}-chrome.zip`,'dist/extension');}catch{console.warn('ZIP tool unavailable; unpacked extension is ready in dist/extension');}
+await publish('extension/INSTALL.txt',`SourcePin ${version}\n\n打开 chrome://extensions，开启开发者模式，点击“加载已解压的扩展程序”，选择本文件所在的 extension 文件夹。\n打开普通网页，点击 SourcePin 扩展图标或 Cmd/Ctrl+Shift+Y。\n点击只选中，Cmd/Ctrl+C 才复制。\n`);
+try{await publishZip(`sourcepin-${version}-chrome.zip`,'extension');}catch{console.warn('ZIP tool unavailable; unpacked extension is ready in extension/');}
 // Control hook for tests/build-lock.test.mjs: make a build fail on purpose while it
 // holds the lock, after the extension ZIP is already on disk, so the failure path can
 // be asserted to release the lock and leave no .tmp files behind. Unset, this costs
@@ -266,5 +271,5 @@ for(const name of artifacts.sort()){
   lines.push(`${createHash('sha256').update(bytes).digest('hex')}  dist/${name}`);
 }
 await publish('dist/SHA256SUMS',lines.join('\n')+'\n');
-console.log('Built extension, bookmarklet and GitHub Pages installation site in dist/');
+console.log('Built extension, bookmarklet and GitHub Pages installation site in dist/ and extension/');
 console.log(`Checksums written for ${artifacts.length} artifacts (version ${version})`);

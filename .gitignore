@@ -1,8 +1,33 @@
+# 依赖
 node_modules/
+
+# 构建产物（书签源码、安装页、ZIP 与校验和）
 dist/
+
+# 人工验收证据、截图与日志（由 npm run test:e2e 与 npm run delivery 生成）
 artifacts/
-.DS_Store
-.superpowers/
+
+# 日志
 *.log
+npm-debug.log*
+pnpm-debug.log*
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 编辑器与本地私有配置
+.vscode/*
+.idea/
+*.swp
+*.local
+.env
+.env.*
+!.env.example
+
+# 构建中途被打断时可能留下的临时文件
+# extension/ 是唯一纳入版本控制的构建产物目录（见 README「仓库结构」）
+extension/*.build-*.tmp
+
+# 本地项目笔记，不随仓库分发
 /AGENTS.md
-/CHANGELOG.md

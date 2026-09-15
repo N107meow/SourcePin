@@ -75,7 +75,7 @@ await copyFile('dist/sourcepin.bookmarklet.txt', `${out}/sourcepin.bookmarklet.t
 await copyFile('dist/sourcepin.js', `${out}/sourcepin.js`);
 await copyFile(`dist/sourcepin-${version}-chrome.zip`, `${out}/sourcepin-${version}-chrome.zip`);
 await rm(`${out}/extension`, { recursive: true, force: true });
-await cp('dist/extension', `${out}/extension`, { recursive: true });
+await cp('extension', `${out}/extension`, { recursive: true });
 
 const listed = [
   'install.html', 'README.md', 'sourcepin.js', 'sourcepin.bookmarklet.txt', `sourcepin-${version}-chrome.zip`,

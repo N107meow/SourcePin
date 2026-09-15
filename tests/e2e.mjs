@@ -19,7 +19,7 @@ try{
   process.exit(1);
 }
 await mkdir('artifacts',{recursive:true});
-const extension=resolve('dist/extension');
+const extension=resolve('extension');
 const context=await chromium.launchPersistentContext('',{
   headless:true,channel:'chromium',viewport:{width:1440,height:1000},
   args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`,'--enable-unsafe-extension-debugging'],

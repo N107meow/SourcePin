@@ -19,7 +19,7 @@
 ## 二、扩展版（可选增强：截图、跨会话偏好、全局快捷键）
 
 1. 打开 `chrome://extensions`，右上角开启**开发者模式**。
-2. 点「加载已解压的扩展程序」，选择本目录下的 **`extension`** 文件夹。
+2. 点「加载已解压的扩展程序」，选择本目录下的 **`extension`** 文件夹（该目录就是仓库根目录 `extension/` 的同一份内容）。
    - 也可以解压 `sourcepin-{{VERSION}}-chrome.zip` 后选择解压出的文件夹，内容相同。
 3. 打开普通网页，点扩展图标或按 <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd>。
 4. 权限只有 `activeTab` + `scripting` + `storage`，下载权限按需申请（可选）。

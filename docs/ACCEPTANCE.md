@@ -9,7 +9,7 @@ npm run build
 npm run dev
 ```
 
-在 Chrome 打开 <http://127.0.0.1:4317>。若要验收扩展能力，再到 `chrome://extensions` 开启开发者模式，加载 `dist/extension`。
+在 Chrome 打开 <http://127.0.0.1:4317>。若要验收扩展能力，再到 `chrome://extensions` 开启开发者模式，加载仓库根目录的 `extension/`（已构建，克隆后无需再构建；改动 `src/` 后先跑 `npm run build`）。
 
 自动化端到端（`npm run test:e2e`）依赖上面这个本地服务：它先导航到该地址，服务不可用时会立即报错并提示用 `npm run dev` 启动，而不是给出误导性的失败。
 

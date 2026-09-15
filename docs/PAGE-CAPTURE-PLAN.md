@@ -13,4 +13,4 @@
 
 已完成各组全量检查：59、63、65 项全绿；追加预算声明及净化边界后 67 项全绿。不存在数据上传或云同步路径。独立 Agent 当前额度不可用，主 Agent 自行复核并以浏览器测试证据收尾。
 
-最终端到端 14/14；两种适配器实际下载均为 3,616 个节点的 Lite page 报告。重新解析验证 1,200 个 article、开放 shadow、template 与图片绝对定位。详情见 TEST-REPORT.md。
+最终端到端 14/14；两种适配器实际下载均为 3,616 个节点的 Lite page 报告。重新解析验证 1,200 个 article、开放 shadow、template 与图片绝对定位。详情见 `docs/dev/TEST-REPORT.md`。

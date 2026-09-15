@@ -4,23 +4,32 @@
 
 线上安装页：<https://n107meow.github.io/SourcePin/>（仓库 Pages 源为 `gh-pages` 分支根目录，HTTPS 强制）。
 
-## 仓库结构
+## 分支结构
 
-- `main`：只放 `README.md` 与 `LICENSE`，即用户到达仓库时读到的东西。
-- `source`：完整源码、测试、构建脚本、文档与全部历史（开发在此进行；`main` 上没有源码，无法运行 `npm run check`）。
-- `gh-pages`：安装页三件套（`.nojekyll`、`index.html`、`robot.svg`），Pages 从这里发布。删除该分支会让在线安装页 404。
-- `v0.1.6` 标签指向 `source`，因此 Release 的 “Source code” 下载是完整源码。
+仓库只保留两个分支：
+
+- `main`：完整源码、测试、构建脚本、文档与全部历史，同时是用户到达仓库时读到的首页。`npm ci && npm run check` 在这里可以直接跑通。
+- `gh-pages`：安装页三件套（`.nojekyll`、`index.html`、`robot.svg`），Pages 从这里发布。**删除该分支会让在线安装页 404。**
+
+标签 `v0.1.6` 指向 `main` 上的发布提交，因此 Release 的 “Source code” 下载是完整源码。
+
+## 纳入版本控制的构建产物
+
+`extension/` 是唯一提交进仓库的构建产物，共 9 个文件（`manifest.json`、`content.js`、`background.js`、四个尺寸图标、`INSTALL.txt`）。理由是克隆后要能直接在 `chrome://extensions` 加载，不必先装 Node.js 再构建。它由 `npm run build` 生成，与本分支下的 `dist/sourcepin-<版本>-chrome.zip` 逐字节一致；改动 `src/` 后重新构建并一起提交。
+
+其余产物都留在 `dist/`（gitignore）：书签源码、安装页、两个 ZIP 与 `SHA256SUMS`。
 
 ## 已准备的文件
 
 运行 `npm ci && npm run build` 后得到：
 
+- `extension/`：可直接加载的 MV3 扩展（截图、跨会话偏好、全局快捷键）。
 - `dist/site/index.html`：带完整 javascript 书签代码的安装页，内置手动安装备用入口和体验区。
 - `dist/site/robot.svg`：安装页插图，使用相对 URL，兼容 `/SourcePin/` 项目子路径。
 - `dist/site/.nojekyll`：按静态文件直接发布。
 - `dist/sourcepin-site.zip`：上述网站文件的压缩包。
 - `dist/sourcepin.bookmarklet.txt`：完整书签网址，无本地服务或远程 loader 依赖。
-- `dist/sourcepin-0.1.6-chrome.zip`：可选扩展版，提供 Chrome 截图和本地偏好保存。
+- `dist/sourcepin-<版本>-chrome.zip`：同一个扩展目录的压缩包。
 
 `npm run delivery` 在 `artifacts/sourcepin-<版本>/` 生成可直接分发的整包（安装页 + 扩展 + 书签源码 + `SHA256SUMS`），并在缺少 `dist/` 时自动先构建。
 
@@ -33,9 +42,18 @@
 
 回退：把 `gh-pages` 分支指回上一版提交即可；已装书签**不会**随网站回退或升级，用户需要用新安装页重新拖入并替换旧书签。
 
+## 发布清单
+
+推送到 GitHub 前逐条核对：
+
+1. `npm run check` 全绿，`extension/` 与 `src/` 同步（重跑构建后 `git status` 只应显示你本次有意的改动）。
+2. 全仓搜索密钥：`grep -rInE "api_key|secret|client_secret|sk-|password|token" --include='*.ts' --include='*.mjs' --include='*.json' src scripts public tests`；命中的应当只有隐私过滤器自身的规则与测试夹具。
+3. `git status --ignored` 确认 `dist/`、`artifacts/`、`node_modules/`、`.DS_Store` 都不在待提交列表里。
+4. 更新安装页后同时推 `main` 与 `gh-pages`；Release 资产用 `npm run delivery` 的产物（`sourcepin-<版本>-delivery.zip` 与 `SHA256SUMS`），不要把 `dist/` 提交进仓库。
+
 ## 正式发布记录
 
-- 公开仓库：<https://github.com/N107meow/SourcePin>（MIT 许可证，见仓库 `LICENSE`）。
+- 公开仓库：<https://github.com/N107meow/SourcePin>（MIT 许可证，见仓库 `LICENSE`），分支为 `main` 与 `gh-pages`。
 - Release：<https://github.com/N107meow/SourcePin/releases/tag/v0.1.6>，资产为 `sourcepin-0.1.6-delivery.zip` 与其 `SHA256SUMS`。
 - Pages：<https://n107meow.github.io/SourcePin/>，源 `gh-pages` 分支根目录。
 

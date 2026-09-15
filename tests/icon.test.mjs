@@ -7,13 +7,13 @@ import { ICON_SIZES, ICON_SVG } from '../scripts/make-icons.mjs';
 // Build explicitly: this suite also checks the distributable extension folder.
 test('the square screen icon ships at every declared size', async () => {
   execFileSync(process.execPath, ['scripts/build.mjs']);
-  const manifest = JSON.parse(await readFile('dist/extension/manifest.json', 'utf8'));
+  const manifest = JSON.parse(await readFile('extension/manifest.json', 'utf8'));
   assert.deepEqual(Object.keys(manifest.icons).sort((a, b) => Number(a) - Number(b)), ['16', '32', '48', '128']);
   assert.deepEqual(manifest.action.default_icon, manifest.icons, 'the toolbar button uses the same square icon');
   for (const size of ICON_SIZES) {
     const declared = manifest.icons[String(size)];
     assert.equal(declared, `icon-${size}.png`);
-    for (const root of ['public', 'dist/extension']) {
+    for (const root of ['public', 'extension']) {
       const buffer = await readFile(`${root}/${declared}`);
       // Assert the real header: a PNG signature, the square size and an alpha channel.
       assert.equal(buffer.subarray(1, 4).toString(), 'PNG', `${root}/${declared} is a PNG`);

@@ -91,7 +91,11 @@ const tree = async dir => {
   }
   return names;
 };
+// Build output spans two roots: dist/ for the site, the ZIPs and the checksums, and
+// the repository-root extension/ folder that ships as the loadable unpacked extension.
+// Both must be swept, or a temporary file in the tracked folder would go unnoticed.
 const leftovers = async root => (await tree(root)).filter(name => name.includes('.build-') || name.endsWith('.tmp'));
+const allLeftovers = async workspace => [...await leftovers(`${workspace}/dist`), ...await leftovers(`${workspace}/extension`)];
 const tombstones = async root => (await tree(root)).filter(name => name.startsWith('.build-lock.stale-'));
 const lockExists = dir => stat(dir).then(() => true, () => false);
 const readOwner = dir => readFile(ownerFile(dir), 'utf8').then(raw => JSON.parse(raw), () => null);
@@ -134,7 +138,7 @@ test('a contender that has created the lock but not yet written its owner record
   assert.equal(bCode, 0, `the second build completed afterwards: ${b.err}`);
   assert.match(b.out, BUILT, 'the second build built its artifacts too');
   assert.equal(await lockExists(lock), false, 'the lock is gone once the last holder releases it');
-  assert.deepEqual(await leftovers(`${workspace}/dist`), [], 'two serialized builds left no temp files');
+  assert.deepEqual(await allLeftovers(workspace), [], 'two serialized builds left no temp files');
   await cleanup([workspace, marker]);
 });
 
@@ -185,7 +189,7 @@ test('a lock whose owner is gone is recovered by the next build, which then succ
   assert.match(build.err, new RegExp(`previous owner pid ${FAKE_PID}`), 'the recovery names the dead owner');
   assert.equal(await lockExists(lock), false, 'no lock is left behind');
   assert.deepEqual(await tombstones(`${workspace}/dist`), [], 'no tombstone is left behind');
-  assert.deepEqual(await leftovers(`${workspace}/dist`), [], 'no .tmp leftovers');
+  assert.deepEqual(await allLeftovers(workspace), [], 'no .tmp leftovers');
   await cleanup([workspace]);
 });
 
@@ -208,7 +212,7 @@ test('a corrupted lock directory is recovered instead of deadlocking the build',
   assert.match(build.out, BUILT, 'the build reported success');
   assert.match(build.err, /Removed stale build lock[\s\S]*previous owner unrecorded/, 'the unreadable record is reported as unrecorded');
   assert.equal(await lockExists(lock), false, 'no lock is left behind');
-  assert.deepEqual(await leftovers(`${workspace}/dist`), []);
+  assert.deepEqual(await allLeftovers(workspace), []);
   await cleanup([workspace]);
 });
 
@@ -236,7 +240,7 @@ test('two builds racing to recover the same stale lock: one recovers, the other 
   assert.equal(built.length, 2, 'both processes built the artifacts');
   assert.equal(await lockExists(lock), false, 'no lock is left behind');
   assert.deepEqual(await tombstones(`${workspace}/dist`), [], 'no tombstone is left behind');
-  assert.deepEqual(await leftovers(`${workspace}/dist`), [], 'no .tmp leftovers');
+  assert.deepEqual(await allLeftovers(workspace), [], 'no .tmp leftovers');
 
   const after = spawnBuild(workspace, { SOURCEPIN_BUILD_LOCK_WAIT_MS: '20000' });
   assert.equal(await after.finished, 0, `a later build is unaffected by the competition: ${after.err}`);
@@ -257,14 +261,14 @@ test('a build that fails while holding the lock leaves no lock and no temp files
   assert.ok(failing.err.includes(FAILING_BUILD), `the failure came from the injected hook: ${failing.err}`);
   assert.equal(await lockExists(lock), false, 'the failed build released its lock');
   assert.deepEqual(await tombstones(`${workspace}/dist`), [], 'no tombstone is left behind');
-  assert.deepEqual(await leftovers(`${workspace}/dist`), [], 'the failed build left no .tmp files');
+  assert.deepEqual(await allLeftovers(workspace), [], 'the failed build left no .tmp files');
 
   // The next build must not wait on anything the failure left behind: the grace
   // window is set far beyond the test's patience, so only a released lock can pass.
   const recovered = spawnBuild(workspace, { SOURCEPIN_BUILD_LOCK_WAIT_MS: '20000', SOURCEPIN_BUILD_LOCK_INIT_GRACE_MS: '60000' });
   assert.equal(await recovered.finished, 0, `a later build succeeds with no grace window available: ${recovered.err}`);
   assert.match(recovered.out, BUILT);
-  assert.deepEqual(await leftovers(`${workspace}/dist`), []);
+  assert.deepEqual(await allLeftovers(workspace), []);
   await cleanup([workspace]);
 });
 
@@ -341,7 +345,7 @@ test('a late-exiting owner never deletes the lock a later build took over (relea
     assert.equal((await takeover.reported).released, true, 'the holder released its own lock');
     assert.equal(await lockExists(lock), false, 'no lock is left behind');
     assert.deepEqual(await tombstones(`${workspace}/dist`), [], 'no tombstone is left behind');
-    assert.deepEqual(await leftovers(`${workspace}/dist`), [], 'no .tmp files are left behind');
+    assert.deepEqual(await allLeftovers(workspace), [], 'no .tmp files are left behind');
     const after = spawnBuild(workspace, { SOURCEPIN_BUILD_LOCK_WAIT_MS: '20000' });
     assert.equal(await after.finished, 0, `a later build is unaffected: ${after.err}`);
   } finally {
@@ -394,15 +398,16 @@ test('SHA256SUMS matches the artifacts this build produced, and a rebuild of the
     assert.deepEqual(entries.filter(entry => /\.tmp$/.test(entry)), [], `${name} ships no temporary file`);
     execFileSync('unzip', ['-t', `${workspace}/dist/${name}`], { stdio: 'pipe' });   // every CRC must check out
     if (name.includes('extension')) {
-      // The ZIP carries exactly the published unpacked extension, no more.
-      const published = (await readdir(`${workspace}/dist/extension`)).slice().sort();
+      // The ZIP carries exactly the published unpacked extension, no more. The
+      // published folder is tracked at the repository root, not under dist/.
+      const published = (await readdir(`${workspace}/extension`)).slice().sort();
       assert.deepEqual(entries.slice().sort(), published, 'the extension ZIP carries exactly the published files');
       // Byte-for-byte equality with what this build published is the direct proof
       // that the archive came from this build and not from a leftover: an inode or
       // a normalized archive timestamp cannot show that on its own.
       for (const entry of entries) {
         const extracted = execFileSync('unzip', ['-p', `${workspace}/dist/${name}`, entry], { maxBuffer: 64 * 1024 * 1024 });
-        assert.equal(extracted.equals(await readFile(`${workspace}/dist/extension/${entry}`)), true, `${name}:${entry} is byte-identical to the published file`);
+        assert.equal(extracted.equals(await readFile(`${workspace}/extension/${entry}`)), true, `${name}:${entry} is byte-identical to the published file`);
       }
     }
     if (name.includes('site')) {
@@ -413,7 +418,7 @@ test('SHA256SUMS matches the artifacts this build produced, and a rebuild of the
       }
     }
   }
-  assert.deepEqual(await leftovers(`${workspace}/dist`), [], 'no .tmp files survived either build');
+  assert.deepEqual(await allLeftovers(workspace), [], 'no .tmp files survived either build');
   assert.equal(await lockExists(`${workspace}/dist/.build-lock`), false, 'the last build released the lock');
   await cleanup([workspace]);
 });
