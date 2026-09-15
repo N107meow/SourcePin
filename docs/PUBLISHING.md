@@ -55,7 +55,16 @@ GITHUB_TOKEN=$(gh auth token) node scripts/publish-github.mjs gh-pages
 
 脚本按 `git ls-files` 逐个上传文件、用同一个父提交创建提交、再移动分支指针；上传后的树必须与本地 `HEAD` 的树哈希一致才会移动指针，非快进会被 GitHub 拒绝（脚本也会先拒绝）。它会先要求工作区干净，所以先提交再推。
 
-代价是 GitHub 把提交的作者记成调用 API 的账号（`meow <…@users.noreply.github.com>`），因此远程提交会得到一个自己的 SHA：本地与远程内容完全一致，提交 ID 不同。`git fetch` / `git push` 在这种网络下都用不了，所以远程跟踪引用不会自动更新；核对状态请用 `gh api repos/N107meow/SourcePin/commits/main --jq .commit.message` 和 `git diff origin/main`（远程树与本地 `HEAD` 的树相同即可确认一致）。
+代价是 GitHub 把提交的作者记成调用 API 的账号（`meow <…@users.noreply.github.com>`），因此远程提交会得到一个自己的 SHA：本地与远程内容完全一致，提交 ID 不同。这种网络下 `git fetch` 也用不了，所以 `refs/remotes/origin/main` 停在被替换前的位置，`git status` 会一直显示 “ahead”。核对两侧是否一致用这两条：
+
+```bash
+gh api repos/N107meow/SourcePin/commits/main --jq '.commit.tree.sha'   # 远程 main 的树
+git rev-parse HEAD^{tree}                                              # 本地 HEAD 的树
+```
+
+两个树哈希相同即内容一致（`git ls-files | wc -l` 与远程 blob 数量也应相同）。最近一次 API 发布的提交与树记在 `.git/sourcepin-remote-main` 与 `.git/sourcepin-main-tree`（仅本地）。
+
+`gh-pages` 不受影响：它的内容由 `dist/site/` 生成，用同一条命令推送即可；本次整理前后线上安装页逐字节未变。
 
 ## 发布清单
 
