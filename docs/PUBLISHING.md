@@ -42,6 +42,21 @@
 
 回退：把 `gh-pages` 分支指回上一版提交即可；已装书签**不会**随网站回退或升级，用户需要用新安装页重新拖入并替换旧书签。
 
+## 推送
+
+优先用普通 Git：`git push origin main`（`gh-pages` 同理）。
+
+如果这条路走不通——某些网络能连 api.github.com 却连不上 github.com:443，`git push` 会报 `Empty reply from server`——用仓库里的 API 推送脚本代替：
+
+```bash
+GITHUB_TOKEN=$(gh auth token) node scripts/publish-github.mjs        # 推 main
+GITHUB_TOKEN=$(gh auth token) node scripts/publish-github.mjs gh-pages
+```
+
+脚本按 `git ls-files` 逐个上传文件、用同一个父提交创建提交、再移动分支指针；上传后的树必须与本地 `HEAD` 的树哈希一致才会移动指针，非快进会被 GitHub 拒绝（脚本也会先拒绝）。它会先要求工作区干净，所以先提交再推。
+
+代价是 GitHub 把提交的作者记成调用 API 的账号（`meow <…@users.noreply.github.com>`），因此远程提交会得到一个自己的 SHA：本地与远程内容完全一致，提交 ID 不同。`git fetch` / `git push` 在这种网络下都用不了，所以远程跟踪引用不会自动更新；核对状态请用 `gh api repos/N107meow/SourcePin/commits/main --jq .commit.message` 和 `git diff origin/main`（远程树与本地 `HEAD` 的树相同即可确认一致）。
+
 ## 发布清单
 
 推送到 GitHub 前逐条核对：

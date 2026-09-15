@@ -89,6 +89,7 @@ npm run dev
 | `npm run check` | 类型检查 + 单元/浏览器测试 + 构建，交付前至少跑这一条 |
 | `npm run test:e2e` | 端到端流程，需要先运行 `npm run dev` |
 | `npm run delivery` | 在 `artifacts/` 生成可分发整包（安装页 + 扩展 + 书签源码 + 校验和） |
+| `GITHUB_TOKEN=$(gh auth token) node scripts/publish-github.mjs` | 用 GitHub API 推送当前分支（`git push` 被网络挡住时的替代路径，见 `docs/PUBLISHING.md`） |
 | `node scripts/make-icons.mjs` | 改动方形图标（游戏机屏幕样式）后重新渲染 `public/icon-*.png` |
 
 人工证据写在 `artifacts/`，构建产物写在 `dist/`，两者都不纳入版本控制。构建带跨进程锁（`dist/.build-lock`），并发构建会排队而不是互相写入对方的半成品。
