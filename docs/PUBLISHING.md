@@ -13,6 +13,10 @@
 
 标签 `v0.1.6` 指向 `main` 上的发布提交，因此 Release 的 “Source code” 下载是完整源码。
 
+历史上还有一个 `source` 分支：它曾按“`main` 只放 README 与 LICENSE、源码全在 `source`”的旧方案拆分，后来源码并回 `main`，于是 `source` 的每个提交都已经是 `main` 的祖先，2026-09-15 删除。删除不影响任何分支、标签或 Release。
+
+`main` 的历史里还会看到成对出现的同标题提交（例如 “release: v0.1.6 …” 出现两次）。那是把 `source` 并回 `main` 时按内容重放的结果：两条历史线的提交 ID 不同、内容相同，`source` 删除后不影响可读性。如需一条线性历史，用 `git log --first-parent` 只看主干。
+
 ## 纳入版本控制的构建产物
 
 `extension/` 是唯一提交进仓库的构建产物，共 9 个文件（`manifest.json`、`content.js`、`background.js`、四个尺寸图标、`INSTALL.txt`）。理由是克隆后要能直接在 `chrome://extensions` 加载，不必先装 Node.js 再构建。它由 `npm run build` 生成，与本分支下的 `dist/sourcepin-<版本>-chrome.zip` 逐字节一致；改动 `src/` 后重新构建并一起提交。
